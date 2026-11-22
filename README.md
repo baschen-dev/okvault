@@ -14,7 +14,7 @@ Background and design choices are in [docs/research.md](docs/research.md).
 ## Quick start
 
 ```sh
-go install github.com/baschen-dev/okvault/cmd/okvault@latest   # private repo: set GOPRIVATE=github.com/baschen-dev/*, or run `just install` from a clone
+go install github.com/baschen-dev/okvault/cmd/okvault@latest
 okvault ask --vault ./vault "how do I add an faq"
 okvault search --vault ./vault bm25 ranking
 ```
