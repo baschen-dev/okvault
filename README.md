@@ -141,7 +141,7 @@ okvault index  [--vault DIR]                 # regenerate okvault-owned index.md
 okvault ticket [--vault DIR] [--json] KEY    # ticket + related notes
 okvault review [--vault DIR] [--owner O] [--reason R] [--json]
 okvault verify [--vault DIR] [--by NAME] PATH...   # default name: git config user.name
-okvault sync   [--vault DIR] [--json]        # commit edits, rebase, push or update the pull request
+okvault sync   [--vault DIR] [--git MODE] [--json]   # commit edits, rebase, push or update the pull request
 ```
 
 ## Development

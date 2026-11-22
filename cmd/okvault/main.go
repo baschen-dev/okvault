@@ -40,7 +40,7 @@ Usage:
   okvault ticket [--vault DIR] KEY                                          ticket + related notes
   okvault review [--vault DIR] [--owner O] [--reason R]                     notes needing a person
   okvault verify [--vault DIR] [--by NAME] PATH...                          mark notes checked by a person
-  okvault sync   [--vault DIR] [--json]                                     commit edits, rebase, push / update the PR
+  okvault sync   [--vault DIR] [--git MODE] [--json]                        commit edits, rebase, push / update the PR
   okvault version
 
 Jira credentials (for ticket / kb_ticket): JIRA_API_TOKEN, plus JIRA_EMAIL on Jira Cloud.
@@ -210,12 +210,13 @@ func syncCmd(args []string, w io.Writer) error {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	dir := fs.String("vault", defaultVault(), "vault directory")
 	asJSON := fs.Bool("json", false, "print JSON")
+	gitMode := fs.String("git", "", "override git.mode from .okvault.yaml: commit, push or pr")
 	_ = fs.Parse(args)
 	v, err := vault.Open(*dir)
 	if err != nil {
 		return err
 	}
-	gs, err := openGit(v, "", envOr("OKVAULT_AUTHOR", "agent"))
+	gs, err := openGit(v, *gitMode, envOr("OKVAULT_AUTHOR", "agent"))
 	if err != nil {
 		return err
 	}
