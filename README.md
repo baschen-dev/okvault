@@ -37,6 +37,8 @@ You can also put it in a project's `.mcp.json`:
 
 To use the vault in Obsidian, choose *Open folder as vault* and pick `vault/`.
 
+An existing Obsidian vault works too: notes without frontmatter are loaded as untyped notes (searchable, linked, a lint warning each) until someone gives them a `type`.
+
 ## MCP tools
 
 | Tool | What it does |

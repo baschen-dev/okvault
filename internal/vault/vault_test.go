@@ -25,7 +25,8 @@ func fixture(t *testing.T) *Vault {
 	root := t.TempDir()
 	write(t, root, "a.md", "---\ntype: Reference\ntitle: Alpha\n---\nSee [b](./sub/b.md) and [[Beta]] and [x](./missing.md).\n")
 	write(t, root, "sub/b.md", "---\ntype: Reference\ntitle: Beta\ndescription: The b note.\n---\nBack to [a](../a.md).\n")
-	write(t, root, "bad.md", "no frontmatter\n")
+	write(t, root, "bad.md", "---\ntitle: [unclosed\n---\n")
+	write(t, root, "plain.md", "A plain Obsidian note, see [[Alpha]].\n")
 	write(t, root, ".obsidian/x.md", "---\ntype: X\n---\n")
 	write(t, root, "_templates/t.md", "---\ntype: FAQ\n---\n")
 	v, err := Open(root)
@@ -38,19 +39,22 @@ func fixture(t *testing.T) *Vault {
 func TestLoadGraph(t *testing.T) {
 	v := fixture(t)
 	s := v.Snapshot()
-	if len(s.Concepts) != 2 {
-		t.Fatalf("want 2 concepts, got %v", s.Sorted())
+	if len(s.Concepts) != 3 {
+		t.Fatalf("want 3 concepts (a, sub/b and the plain note), got %v", s.Sorted())
 	}
 	if got := strings.Join(s.Links["a.md"], ","); got != "sub/b.md" {
 		t.Fatalf("links a.md = %q (wikilink and md link to the same note should dedupe)", got)
 	}
-	if got := strings.Join(s.Backlinks["a.md"], ","); got != "sub/b.md" {
-		t.Fatalf("backlinks a.md = %q", got)
-	}
 	if got := strings.Join(s.Broken["a.md"], ","); got != "missing.md" {
 		t.Fatalf("broken = %q", got)
 	}
-	if len(s.Issues) != 1 || s.Issues[0].Path != "bad.md" {
+	if c := s.Concepts["plain.md"]; c == nil || c.Type != "" || c.Title != "Plain" {
+		t.Fatalf("plain note = %+v", c)
+	}
+	if got := strings.Join(s.Backlinks["a.md"], ","); got != "plain.md,sub/b.md" && got != "sub/b.md,plain.md" {
+		t.Fatalf("a plain note's wikilink should count as a backlink, got %q", got)
+	}
+	if len(s.Issues) != 2 || s.Issues[0].Path != "bad.md" || s.Issues[0].Warning || s.Issues[1].Path != "plain.md" || !s.Issues[1].Warning {
 		t.Fatalf("issues = %+v", s.Issues)
 	}
 }
@@ -139,7 +143,27 @@ func TestLint(t *testing.T) {
 	if !strings.Contains(joined, "bad.md") || !strings.Contains(joined, "newest first") {
 		t.Errorf("errors:\n%s", joined)
 	}
-	if !strings.Contains(strings.Join(warns, "\n"), "broken link: missing.md") {
+	if strings.Contains(joined, "plain.md") {
+		t.Errorf("a note without frontmatter should be a warning, not an error:\n%s", joined)
+	}
+	if w := strings.Join(warns, "\n"); !strings.Contains(w, "broken link: missing.md") || !strings.Contains(w, "plain.md: no frontmatter") {
 		t.Errorf("warnings:\n%s", strings.Join(warns, "\n"))
+	}
+}
+
+func TestWritePlainNoteNeedsType(t *testing.T) {
+	v := fixture(t)
+	if _, err := v.Write(WriteRequest{Path: "plain.md", Description: "d", Mode: "update"}, time.Now()); err == nil || !strings.Contains(err.Error(), "no `type`") {
+		t.Fatalf("update without type: err = %v", err)
+	}
+	if _, err := v.Write(WriteRequest{Path: "plain.md", Type: "Reference", Mode: "update"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	src, _ := v.ReadFile("plain.md")
+	if !strings.HasPrefix(string(src), "---\ntype: Reference\n") || !strings.Contains(string(src), "A plain Obsidian note, see [[Alpha]].") {
+		t.Fatalf("plain note not converted:\n%s", src)
+	}
+	if is := v.Snapshot().Issues; len(is) != 1 || is[0].Path != "bad.md" {
+		t.Fatalf("issues after conversion = %+v", is)
 	}
 }

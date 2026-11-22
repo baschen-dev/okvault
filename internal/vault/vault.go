@@ -40,6 +40,7 @@ func Revision(src []byte) string {
 type Issue struct {
 	Path    string `json:"path"`
 	Message string `json:"message"`
+	Warning bool   `json:"warning,omitempty"` // a recommendation, not a load failure
 }
 
 // Snapshot is an immutable view of the vault at one point in time.
@@ -141,7 +142,7 @@ func (v *Vault) Reload() (*Snapshot, error) {
 	cfg, err := config.Load(v.Root)
 	if err != nil {
 		// keep serving with the last good config; lint reports the problem
-		s.Issues = append(s.Issues, Issue{config.File, strings.TrimPrefix(err.Error(), config.File+": ")})
+		s.Issues = append(s.Issues, Issue{Path: config.File, Message: strings.TrimPrefix(err.Error(), config.File+": ")})
 		if prev := v.Snapshot(); prev != nil {
 			cfg = prev.Config
 		} else {
@@ -167,16 +168,19 @@ func (v *Vault) Reload() (*Snapshot, error) {
 		rel = filepath.ToSlash(rel)
 		src, err := os.ReadFile(p)
 		if err != nil {
-			s.Issues = append(s.Issues, Issue{rel, err.Error()})
+			s.Issues = append(s.Issues, Issue{Path: rel, Message: err.Error()})
 			return nil
 		}
 		c, err := okf.Parse(rel, src)
-		if err != nil {
-			s.Issues = append(s.Issues, Issue{rel, err.Error()})
+		switch {
+		case errors.Is(err, okf.ErrNoFrontmatter):
+			c = okf.Plain(rel, src)
+			s.Issues = append(s.Issues, Issue{rel, "no frontmatter: loaded as an untyped note; add `type` to make it an OKF concept", true})
+		case err != nil:
+			s.Issues = append(s.Issues, Issue{Path: rel, Message: err.Error()})
 			return nil
-		}
-		if c.Type == "" {
-			s.Issues = append(s.Issues, Issue{rel, "frontmatter has no `type` (required by OKF)"})
+		case c.Type == "":
+			s.Issues = append(s.Issues, Issue{rel, "frontmatter has no `type` (required by OKF); loaded as an untyped note", true})
 		}
 		s.Concepts[rel] = c
 		s.Dirs[path.Dir(rel)] = true
@@ -406,8 +410,14 @@ func (v *Vault) Write(req WriteRequest, now time.Time) (*WriteResult, error) {
 	var c *okf.Concept
 	if exists {
 		c, err = okf.Parse(rel, existing)
+		if errors.Is(err, okf.ErrNoFrontmatter) {
+			c, err = okf.Plain(rel, existing), nil
+		}
 		if err != nil {
 			return nil, fmt.Errorf("vault: cannot update %s: %w", rel, err)
+		}
+		if c.Type == "" && strings.TrimSpace(req.Type) == "" {
+			return nil, fmt.Errorf("vault: %s has no `type` yet; pass one to update it (OKF)", rel)
 		}
 	} else {
 		if strings.TrimSpace(req.Type) == "" {

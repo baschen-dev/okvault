@@ -10,6 +10,12 @@ aliases: [OKF note format, frontmatter rules]
 
 Every note is one concept: one Markdown file with YAML frontmatter.
 
+A note without frontmatter, as in most existing Obsidian vaults, is still
+loaded as an *untyped* note: it is searchable, its links count, and it is listed
+under "Untyped" in its folder's index. `okvault lint` warns about it (an error
+only with `--strict`). Updating it with `kb_write` needs a `type`, which turns
+it into an OKF concept.
+
 ## Frontmatter
 
 | Key | Required | Notes |

@@ -189,6 +189,19 @@ func New(path, typ string) *Concept {
 	return c
 }
 
+// Plain wraps a Markdown file that has no frontmatter, as most notes in an
+// existing Obsidian vault do. It has no type, so it is not yet an OKF concept,
+// but it can be searched and linked; writing it adds frontmatter.
+func Plain(path string, src []byte) *Concept {
+	body := bytes.TrimPrefix(src, []byte{0xEF, 0xBB, 0xBF})
+	return &Concept{
+		Path:  path,
+		Title: TitleFromPath(path),
+		Body:  strings.ReplaceAll(string(body), "\r\n", "\n"),
+		meta:  &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"},
+	}
+}
+
 // MarkGenerated records agent provenance (`generated: {by, at}`).
 func (c *Concept) MarkGenerated(by string, at time.Time) error {
 	return c.Set("generated", stampYAML{by, at.Format(time.RFC3339)})

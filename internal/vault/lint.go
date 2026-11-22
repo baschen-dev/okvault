@@ -30,7 +30,11 @@ func (v *Vault) Lint() []Finding {
 	s := v.Snapshot()
 	var out []Finding
 	for _, is := range s.Issues {
-		out = append(out, Finding{Error, is.Path, is.Message})
+		sev := Error
+		if is.Warning {
+			sev = Warning
+		}
+		out = append(out, Finding{sev, is.Path, is.Message})
 	}
 	faqQuestions := map[string]string{}
 	for _, p := range s.Sorted() {
@@ -39,7 +43,7 @@ func (v *Vault) Lint() []Finding {
 		if strings.ContainsAny(base, " %#") {
 			out = append(out, Finding{Warning, p, "file name has spaces or special characters; use kebab-case so links need no escaping"})
 		}
-		if c.Description == "" {
+		if c.Description == "" && c.Type != "" { // untyped notes already get one warning
 			out = append(out, Finding{Warning, p, "no `description` (recommended; shown in indexes and search hits)"})
 		}
 		if st := strings.ToLower(c.Status); st != "" && st != "draft" && st != "stable" && st != "deprecated" {
