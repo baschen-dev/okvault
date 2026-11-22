@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/baschen-dev/okvault/internal/config"
@@ -84,9 +85,13 @@ func (s *Snapshot) Sorted() []string {
 type Vault struct {
 	Root string // absolute
 
-	mu   sync.Mutex // serialises writes
-	snap *Snapshot
-	smu  sync.RWMutex
+	mu sync.Mutex // serialises writes and git operations on the work tree
+	// Git, when set, records okvault's writes as commits.
+	Git     Committer
+	touched map[string]bool // files written by the current write (under mu)
+	busy    atomic.Bool     // a git operation is rewriting the work tree
+	snap    *Snapshot
+	smu     sync.RWMutex
 }
 
 // skipDir reports directories that are never indexed.
@@ -308,6 +313,9 @@ func (v *Vault) ReadFile(rel string) ([]byte, error) { return os.ReadFile(v.abs(
 
 // WriteFile writes atomically (temp file + rename).
 func (v *Vault) writeFile(rel string, data []byte) error {
+	if v.touched != nil {
+		v.touched[rel] = true
+	}
 	dst := v.abs(rel)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
@@ -351,10 +359,11 @@ type WriteRequest struct {
 
 // WriteResult reports what a write did.
 type WriteResult struct {
-	Path     string `json:"path"`
-	Created  bool   `json:"created"`
-	Revision string `json:"revision"`        // revision of the written note
-	Index    string `json:"index,omitempty"` // index file regenerated, if any
+	Path     string  `json:"path"`
+	Created  bool    `json:"created"`
+	Revision string  `json:"revision"`        // revision of the written note
+	Index    string  `json:"index,omitempty"` // index file regenerated, if any
+	Git      *Commit `json:"git,omitempty"`   // the commit recording it, when git is on
 }
 
 // ErrConflict means the note changed since the caller read it.
@@ -369,6 +378,26 @@ func (v *Vault) Write(req WriteRequest, now time.Time) (*WriteResult, error) {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	v.touched = map[string]bool{}
+	defer func() { v.touched = nil }()
+	res, err := v.write(rel, req, now)
+	if err != nil {
+		return nil, err
+	}
+	verb := "update"
+	if res.Created {
+		verb = "add"
+	}
+	body := req.Note
+	if a := strings.TrimSpace(req.Author); a != "" {
+		body = strings.TrimSpace(body + "\n\nWritten by " + a + " through okvault.")
+	}
+	res.Git = v.commit(fmt.Sprintf("docs(kb): %s %s", verb, rel), body)
+	return res, nil
+}
+
+func (v *Vault) write(rel string, req WriteRequest, now time.Time) (*WriteResult, error) {
+	var err error
 
 	existing, readErr := os.ReadFile(v.abs(rel))
 	exists := readErr == nil
@@ -504,7 +533,10 @@ func orDefault(s, d string) string {
 func (v *Vault) RegenerateIndexes() ([]string, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	snap := v.Snapshot()
+	return v.regenerateIndexes(v.Snapshot())
+}
+
+func (v *Vault) regenerateIndexes(snap *Snapshot) ([]string, error) {
 	var written []string
 	dirs := allDirs(snap)
 	for _, d := range dirs {

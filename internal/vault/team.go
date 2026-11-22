@@ -23,6 +23,8 @@ func (v *Vault) Verify(p, by string, now time.Time) (*WriteResult, error) {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	v.touched = map[string]bool{}
+	defer func() { v.touched = nil }()
 	src, err := os.ReadFile(v.abs(rel))
 	if err != nil {
 		return nil, fmt.Errorf("vault: %s: %w", rel, err)
@@ -51,10 +53,16 @@ func (v *Vault) Verify(p, by string, now time.Time) (*WriteResult, error) {
 	if err := v.writeFile(okf.LogFile, okf.AppendLog(logSrc, now, "Verification", msg)); err != nil {
 		return nil, err
 	}
-	if _, err := v.Reload(); err != nil {
+	snap, err := v.Reload()
+	if err != nil {
 		return nil, err
 	}
-	return &WriteResult{Path: rel, Revision: Revision(data)}, nil
+	if _, err := v.regenerateIndexes(snap); err != nil {
+		return nil, err
+	}
+	res := &WriteResult{Path: rel, Revision: Revision(data)}
+	res.Git = v.commit("docs(kb): verify "+rel, "Checked by "+by+".")
+	return res, nil
 }
 
 // Review reasons.

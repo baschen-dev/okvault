@@ -60,6 +60,23 @@ knowledge lives here. okvault connects the two in both directions.
 - Git conflicts in generated files: see
   [How do I resolve a merge conflict in index.md or log.md?](../faq/how-do-i-resolve-a-merge-conflict.md)
 
+## Git and pull requests
+
+With `git.mode: pr` in `.okvault.yaml`, each person's okvault commits agent
+writes (and, with `commit_edits`, Obsidian edits) to their own branch,
+`okvault/<name>`, keeps it rebased on `main` and keeps one GitHub pull request
+open for it. Review it like code: merging is what publishes knowledge to the
+team. After a merge, okvault starts a fresh pull request for later changes.
+
+- `kb_write` and `kb_review` report the branch, the pull request link and any
+  sync problem. Agents pass the link on and leave conflicts to people.
+- A conflict on a note (two people changed it) stops the sync without losing
+  anything; resolve it with git, or rewrite the note and let okvault sync again.
+- `okvault sync` runs one pass by hand.
+
+`git.mode: push` commits straight to the current branch instead, for a
+personal vault or a team without review.
+
 ## Configuration
 
 `.okvault.yaml` at the vault root is committed and holds no secrets.

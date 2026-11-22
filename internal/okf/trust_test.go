@@ -52,3 +52,13 @@ func TestNormalizeLog(t *testing.T) {
 		t.Fatal("non-date heading must be left alone")
 	}
 }
+
+func TestMergeLogs(t *testing.T) {
+	a := "# Log\n\n## 2026-02-01\n\n* a2\n\n## 2026-01-01\n\n* a1\n"
+	b := "# Log\n\n## 2026-02-01\n\n* b2\n* a2\n"
+	got := string(MergeLogs([]byte(a), []byte(b)))
+	want := "# Log\n\n## 2026-02-01\n\n* a2\n* b2\n\n## 2026-01-01\n\n* a1\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}

@@ -154,3 +154,15 @@ func NormalizeLog(src []byte) []byte {
 	}
 	return []byte(b.String() + "\n")
 }
+
+// MergeLogs combines two versions of log.md (e.g. both sides of a merge
+// conflict): entries from both, one section per date, newest first.
+func MergeLogs(a, b []byte) []byte {
+	s := string(b)
+	if i := strings.Index(s, "\n## "); i >= 0 {
+		s = s[i+1:]
+	} else if !strings.HasPrefix(s, "## ") {
+		s = ""
+	}
+	return NormalizeLog([]byte(strings.TrimRight(string(a), "\n") + "\n\n" + s))
+}

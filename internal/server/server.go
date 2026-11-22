@@ -37,7 +37,11 @@ Team work and tickets:
 - Starting work on a ticket (e.g. PROJ-123): call kb_ticket first. It returns the ticket from the tracker (when configured) and the notes linked to it, mentioning it, or likely relevant.
 - Finishing work on a ticket: record what the team should remember (decisions, gotchas, how-tos, new FAQ answers) with kb_write and tickets: ["PROJ-123"]. Update existing notes rather than adding near-duplicates.
 - kb_review lists notes that need a person: stale, unverified agent edits, drafts, broken links. Never set the verified key yourself; people do that with okvault verify.
-- The tracker is read-only here: never claim to have updated a ticket.`
+- The tracker is read-only here: never claim to have updated a ticket.
+
+Git (when the vault turns it on): kb_write commits each change, and okvault rebases and pushes in the background. kb_write and kb_review report the sync state.
+- In pr mode a change reaches the team only when its GitHub pull request is merged: give the user the pull_request link after writing.
+- If sync reports a problem (a conflict, a failed push), tell the user what it says; do not rewrite git history yourself to get around it.`
 
 // Options configure the server.
 type Options struct {
@@ -47,6 +51,8 @@ type Options struct {
 	// Env looks up tracker credentials (os.Getenv in production). Nil means
 	// no credentials: kb_ticket still returns the related notes.
 	Env func(string) string
+	// GitStatus reports the vault's git sync state (nil: git is off).
+	GitStatus func() any
 }
 
 // Server binds a vault and its search index to MCP tools.
@@ -169,6 +175,20 @@ type ReviewIn struct {
 type ReviewOut struct {
 	Total int                `json:"total"`
 	Items []vault.ReviewItem `json:"items"`
+	Git   any                `json:"git,omitempty"` // sync state: branch, pull request, problems
+}
+
+// WriteOut is a write result plus the vault's git sync state.
+type WriteOut struct {
+	*vault.WriteResult
+	Sync any `json:"sync,omitempty"` // branch, pull request, unpushed commits, problems
+}
+
+func (s *Server) gitStatus() any {
+	if s.opts.GitStatus == nil {
+		return nil
+	}
+	return s.opts.GitStatus()
 }
 
 // ---- kb_list ----
@@ -291,7 +311,7 @@ func (s *Server) register() {
 		Annotations: ro,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ReviewIn) (*mcp.CallToolResult, ReviewOut, error) {
 		items := s.v.Snapshot().Review(vault.ReviewQuery{Owner: in.Owner, Reason: in.Reason}, time.Now())
-		out := ReviewOut{Total: len(items), Items: items}
+		out := ReviewOut{Total: len(items), Items: items, Git: s.gitStatus()}
 		limit := in.Limit
 		if limit <= 0 {
 			limit = 25
@@ -314,9 +334,9 @@ func (s *Server) register() {
 	mcp.AddTool(s.MCP, &mcp.Tool{
 		Name:        "kb_write",
 		Title:       "Write a note",
-		Description: "Create or update one OKF note (Markdown + YAML frontmatter). Given fields replace existing ones; unknown frontmatter keys are kept. Refreshes the folder index.md and records the change in log.md. Search first to avoid duplicates.",
+		Description: "Create or update one OKF note (Markdown + YAML frontmatter). Given fields replace existing ones; unknown frontmatter keys are kept. Refreshes the folder index.md and records the change in log.md; when the vault uses git, commits it. Search first to avoid duplicates.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(bool), OpenWorldHint: new(bool)},
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in WriteIn) (*mcp.CallToolResult, *vault.WriteResult, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in WriteIn) (*mcp.CallToolResult, *WriteOut, error) {
 		res, err := s.v.Write(vault.WriteRequest{
 			Path: in.Path, Type: in.Type, Title: in.Title, Description: in.Description,
 			Tags: in.Tags, Aliases: in.Aliases, Status: in.Status, Body: in.Body,
@@ -327,7 +347,7 @@ func (s *Server) register() {
 			return nil, nil, err
 		}
 		s.Refresh(s.v.Snapshot())
-		return nil, res, nil
+		return nil, &WriteOut{WriteResult: res, Sync: s.gitStatus()}, nil
 	})
 }
 

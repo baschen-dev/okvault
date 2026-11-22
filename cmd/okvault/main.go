@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,6 +19,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/baschen-dev/okvault/internal/config"
+	"github.com/baschen-dev/okvault/internal/gitsync"
 	"github.com/baschen-dev/okvault/internal/search"
 	"github.com/baschen-dev/okvault/internal/server"
 	"github.com/baschen-dev/okvault/internal/vault"
@@ -28,7 +31,8 @@ var version = "dev" // set with -ldflags "-X main.version=..."
 const usage = `okvault - OKF knowledge vault for AI agents (MCP)
 
 Usage:
-  okvault serve  [--vault DIR] [--read-only] [--author NAME] [--no-watch]   MCP server on stdio
+  okvault serve  [--vault DIR] [--read-only] [--author NAME] [--no-watch] [--git MODE]
+                                                                          MCP server on stdio
   okvault ask    [--vault DIR] QUESTION...                                  FAQ fast answer
   okvault search [--vault DIR] [--type T] [--tag T] [--limit N] QUERY...    ranked search
   okvault lint   [--vault DIR] [--strict]                                   OKF conformance check
@@ -36,9 +40,12 @@ Usage:
   okvault ticket [--vault DIR] KEY                                          ticket + related notes
   okvault review [--vault DIR] [--owner O] [--reason R]                     notes needing a person
   okvault verify [--vault DIR] [--by NAME] PATH...                          mark notes checked by a person
+  okvault sync   [--vault DIR] [--json]                                     commit edits, rebase, push / update the PR
   okvault version
 
 Jira credentials (for ticket / kb_ticket): JIRA_API_TOKEN, plus JIRA_EMAIL on Jira Cloud.
+Git: set git.mode in .okvault.yaml (off, commit, push, pr); --git overrides it on this machine.
+GitHub pull requests (pr mode): GH_TOKEN or GITHUB_TOKEN, else the GitHub CLI's login.
 
 The vault defaults to $OKVAULT_DIR, else ./vault if it exists, else the current directory.
 `
@@ -69,6 +76,8 @@ func main() {
 		err = review(args, os.Stdout)
 	case "verify":
 		err = verify(args, os.Stdout)
+	case "sync":
+		err = syncCmd(args, os.Stdout)
 	case "version", "--version", "-v":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -120,20 +129,41 @@ func serve(args []string) error {
 	readOnly := fs.Bool("read-only", false, "do not expose kb_write")
 	author := fs.String("author", envOr("OKVAULT_AUTHOR", "agent"), "recorded as generated.by on writes")
 	noWatch := fs.Bool("no-watch", false, "do not reload when files change")
+	gitMode := fs.String("git", "", "override git.mode from .okvault.yaml on this machine: off, commit, push or pr")
 	_ = fs.Parse(args)
 	v, ix, err := open(fs, *dir)
 	if err != nil {
 		return err
 	}
-	srv := server.New(v, ix, server.Options{ReadOnly: *readOnly, Author: *author, Version: version, Env: os.Getenv})
+	opts := server.Options{ReadOnly: *readOnly, Author: *author, Version: version, Env: os.Getenv}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	var gs *gitsync.Syncer
+	if !*readOnly {
+		if gs, err = openGit(v, *gitMode, *author); err != nil {
+			return err
+		}
+	}
+	if gs != nil {
+		v.Git = gs
+		opts.GitStatus = func() any {
+			if gs.Mode() == config.GitOff {
+				return nil
+			}
+			return gs.Status()
+		}
+		go gs.Run(ctx)
+	}
+	srv := server.New(v, ix, opts)
 	if !*noWatch {
 		go func() {
 			onReload := func(s *vault.Snapshot) {
 				srv.Refresh(s)
-				if *readOnly {
-					return
+				if *readOnly || v.Busy() {
+					return // a rebase is rewriting the tree; gitsync regenerates after it
+				}
+				if gs != nil {
+					gs.Touched()
 				}
 				// keep okvault-owned index.md files in step with notes edited in Obsidian
 				if written, err := v.RegenerateIndexes(); err != nil {
@@ -149,6 +179,74 @@ func serve(args []string) error {
 	}
 	slog.Info("okvault serving", "vault", v.Root, "concepts", len(v.Snapshot().Concepts), "read_only", *readOnly)
 	return srv.MCP.Run(ctx, &mcp.StdioTransport{})
+}
+
+// openGit returns the vault's git syncer, or nil when git is off and the
+// vault is not in a repository. mode overrides git.mode from .okvault.yaml.
+func openGit(v *vault.Vault, mode, author string) (*gitsync.Syncer, error) {
+	switch mode = strings.ToLower(strings.TrimSpace(mode)); mode {
+	case "", config.GitOff, config.GitCommit, config.GitPush, config.GitPR:
+	default:
+		return nil, fmt.Errorf("--git %q must be off, commit, push or pr", mode)
+	}
+	if mode == config.GitOff {
+		return nil, nil
+	}
+	cfg := func() config.Git { return v.Snapshot().Config.Git }
+	s, err := gitsync.New(gitsync.Options{Vault: v, Config: cfg, Mode: mode, Author: author, Env: os.Getenv})
+	if err != nil {
+		if m := mode; m != "" || cfg().Mode != config.GitOff {
+			slog.Warn("git is configured but unavailable", "err", err)
+		}
+		return nil, nil
+	}
+	if m := s.Mode(); m != config.GitOff {
+		slog.Info("git sync on", "mode", m)
+	}
+	return s, nil
+}
+
+func syncCmd(args []string, w io.Writer) error {
+	fs := flag.NewFlagSet("sync", flag.ExitOnError)
+	dir := fs.String("vault", defaultVault(), "vault directory")
+	asJSON := fs.Bool("json", false, "print JSON")
+	_ = fs.Parse(args)
+	v, err := vault.Open(*dir)
+	if err != nil {
+		return err
+	}
+	gs, err := openGit(v, "", envOr("OKVAULT_AUTHOR", "agent"))
+	if err != nil {
+		return err
+	}
+	if gs == nil || gs.Mode() == config.GitOff {
+		return fmt.Errorf("git is off: set git.mode in %s", config.File)
+	}
+	ctx := context.Background()
+	if sha, err := gs.CommitEdits(ctx); err != nil {
+		return err
+	} else if sha != "" && !*asJSON {
+		fmt.Fprintf(w, "committed edits: %s\n", sha[:min(7, len(sha))])
+	}
+	st := gs.Sync(ctx)
+	if *asJSON {
+		return printJSON(w, st)
+	}
+	fmt.Fprintf(w, "mode %s", st.Mode)
+	if st.Branch != "" {
+		fmt.Fprintf(w, ", branch %s", st.Branch)
+	}
+	if st.Base != "" {
+		fmt.Fprintf(w, " -> %s", st.Base)
+	}
+	fmt.Fprintln(w)
+	if st.PR != "" {
+		fmt.Fprintln(w, "pull request:", st.PR)
+	}
+	if st.Problem != "" {
+		return errors.New(st.Problem)
+	}
+	return nil
 }
 
 func envOr(k, d string) string {
@@ -359,6 +457,20 @@ func verify(args []string, w io.Writer) error {
 	v, err := vault.Open(*dir)
 	if err != nil {
 		return err
+	}
+	gs, err := openGit(v, "", name)
+	if err != nil {
+		return err
+	}
+	if gs != nil {
+		v.Git = gs
+		defer func() {
+			if st := gs.Sync(context.Background()); st.Problem != "" {
+				fmt.Fprintln(w, "git:", st.Problem)
+			} else if st.PR != "" {
+				fmt.Fprintln(w, "pull request:", st.PR)
+			}
+		}()
 	}
 	for _, p := range fs.Args() {
 		if abs, err := filepath.Abs(p); err == nil {

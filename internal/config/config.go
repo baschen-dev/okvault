@@ -1,7 +1,7 @@
 // Package config reads the team settings committed with a vault (.okvault.yaml).
 //
 // The file holds shared, non-secret settings only: tracker location, project
-// keys, folder owners and the review interval. Credentials come from the
+// keys, folder owners, the review interval and git policy. Credentials come from the
 // environment, never from the vault.
 package config
 
@@ -39,9 +39,91 @@ type Config struct {
 	// ReviewInterval is how long a human verification stays fresh, e.g. "180d",
 	// "26w" or a Go duration. `okvault verify` sets stale_after from it.
 	ReviewInterval string `yaml:"review_interval"`
+	// Git sets how okvault records changes in the vault's git repository.
+	Git Git `yaml:"git"`
 
 	keyRe  *regexp.Regexp
 	review time.Duration
+}
+
+// Git modes.
+const (
+	GitOff    = "off"    // okvault never runs git (default)
+	GitCommit = "commit" // commit okvault's writes locally
+	GitPush   = "push"   // also rebase on the upstream branch and push to it
+	GitPR     = "pr"     // work on a personal branch with one open GitHub pull request
+)
+
+// DefaultPullInterval is how often a serving okvault fetches and rebases in
+// push and pr modes when the config does not say otherwise.
+const DefaultPullInterval = 5 * time.Minute
+
+// Git holds the vault's git settings. They are team policy, so they are
+// committed; a machine can still turn git off with `okvault serve --git off`.
+type Git struct {
+	Mode   string `yaml:"mode"`   // off, commit, push or pr
+	Remote string `yaml:"remote"` // default origin
+	// Base is the branch pull requests target (pr mode); default the remote's default branch.
+	Base string `yaml:"base"`
+	// Branch is the working branch in pr mode; default okvault/<git user name>.
+	Branch string `yaml:"branch"`
+	// PullInterval is how often to fetch, rebase and push while serving (push
+	// and pr modes), e.g. "5m"; "0" means only after okvault's own writes.
+	PullInterval string `yaml:"pull_interval"`
+	// CommitEdits commits changes made outside okvault (in Obsidian, by hand)
+	// once the vault has been quiet this long, e.g. "10m". Empty: never.
+	CommitEdits string `yaml:"commit_edits"`
+
+	pull, quiet time.Duration
+}
+
+// Every returns the periodic sync interval (0: only after writes).
+func (g Git) Every() time.Duration { return g.pull }
+
+// Quiet returns how long edits made outside okvault rest before they are
+// committed (0: they are not).
+func (g Git) Quiet() time.Duration { return g.quiet }
+
+var gitName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
+
+func (g *Git) normalize() error {
+	g.Mode = strings.ToLower(strings.TrimSpace(g.Mode))
+	switch g.Mode {
+	case "", GitOff:
+		g.Mode = GitOff
+	case GitCommit, GitPush, GitPR:
+	default:
+		return fmt.Errorf("git.mode %q must be off, commit, push or pr", g.Mode)
+	}
+	if g.Remote == "" {
+		g.Remote = "origin"
+	}
+	for k, v := range map[string]string{"git.remote": g.Remote, "git.base": g.Base, "git.branch": g.Branch} {
+		if v != "" && (!gitName.MatchString(v) || strings.Contains(v, "..") || strings.HasSuffix(v, "/")) {
+			return fmt.Errorf("%s %q is not a valid git name", k, v)
+		}
+	}
+	if g.Remote != "" && strings.Contains(g.Remote, "/") {
+		return fmt.Errorf("git.remote %q is a remote name like origin, not a URL", g.Remote)
+	}
+	g.pull = DefaultPullInterval
+	if s := strings.TrimSpace(g.PullInterval); s == "0" {
+		g.pull = 0
+	} else if s != "" {
+		d, err := ParseInterval(s)
+		if err != nil {
+			return fmt.Errorf("git.pull_interval: %w", err)
+		}
+		g.pull = d
+	}
+	if s := strings.TrimSpace(g.CommitEdits); s != "" && s != "0" {
+		d, err := ParseInterval(s)
+		if err != nil {
+			return fmt.Errorf("git.commit_edits: %w", err)
+		}
+		g.quiet = d
+	}
+	return nil
 }
 
 // Tracker points at the team's ticketing system.
@@ -123,6 +205,9 @@ func Parse(src []byte) (*Config, error) {
 	if len(keys) > 0 {
 		sort.Sort(sort.Reverse(sort.StringSlice(keys))) // longer keys sharing a prefix first
 		c.keyRe = regexp.MustCompile(`\b(?:` + strings.Join(keys, "|") + `)-[1-9][0-9]*\b`)
+	}
+	if err := c.Git.normalize(); err != nil {
+		return nil, err
 	}
 	c.review = DefaultReviewInterval
 	if c.ReviewInterval != "" {

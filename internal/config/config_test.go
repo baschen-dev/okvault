@@ -67,3 +67,31 @@ func TestNormalizeKey(t *testing.T) {
 		}
 	}
 }
+
+func TestGitConfig(t *testing.T) {
+	c, err := Parse([]byte("git:\n  mode: PR\n  base: main\n  pull_interval: 2m\n  commit_edits: 10m\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := c.Git
+	if g.Mode != GitPR || g.Remote != "origin" || g.Every() != 2*time.Minute || g.Quiet() != 10*time.Minute {
+		t.Fatalf("git = %+v every=%v quiet=%v", g, g.Every(), g.Quiet())
+	}
+	c, _ = Parse(nil)
+	if c.Git.Mode != GitOff || c.Git.Every() != DefaultPullInterval || c.Git.Quiet() != 0 {
+		t.Fatalf("defaults = %+v", c.Git)
+	}
+	if c, _ := Parse([]byte("git:\n  mode: push\n  pull_interval: \"0\"\n")); c.Git.Every() != 0 {
+		t.Fatal("pull_interval 0 should turn periodic sync off")
+	}
+	for _, bad := range []string{
+		"git:\n  mode: sometimes\n",
+		"git:\n  remote: https://github.com/o/r\n",
+		"git:\n  branch: \"a..b\"\n",
+		"git:\n  token: x\n",
+	} {
+		if _, err := Parse([]byte(bad)); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+}
