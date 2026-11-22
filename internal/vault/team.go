@@ -31,12 +31,12 @@ func (v *Vault) Verify(p, by string, now time.Time) (*WriteResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("vault: cannot verify %s: %w", rel, err)
 	}
-	now = now.UTC().Truncate(time.Second)
-	if err := c.AddVerified(by, now); err != nil {
+	at := now.UTC().Truncate(time.Second) // stamps in UTC; the log uses the caller's local date like Write
+	if err := c.AddVerified(by, at); err != nil {
 		return nil, err
 	}
 	cfg := v.Snapshot().Config
-	if err := c.Set("stale_after", now.Add(cfg.Review()).Format(time.RFC3339)); err != nil {
+	if err := c.Set("stale_after", at.Add(cfg.Review()).Format(time.RFC3339)); err != nil {
 		return nil, err
 	}
 	data, err := c.Marshal()

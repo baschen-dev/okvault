@@ -36,7 +36,7 @@ To change an existing note, pass the revision from kb_get as base_revision so a 
 Team work and tickets:
 - Starting work on a ticket (e.g. PROJ-123): call kb_ticket first. It returns the ticket from the tracker (when configured) and the notes linked to it, mentioning it, or likely relevant.
 - Finishing work on a ticket: record what the team should remember (decisions, gotchas, how-tos, new FAQ answers) with kb_write and tickets: ["PROJ-123"]. Update existing notes rather than adding near-duplicates.
-- kb_review lists notes that need a person: stale, unverified agent edits, drafts, broken links. Agents cannot mark notes verified; people do that with okvault verify.
+- kb_review lists notes that need a person: stale, unverified agent edits, drafts, broken links. Never set the verified key yourself; people do that with okvault verify.
 - The tracker is read-only here: never claim to have updated a ticket.`
 
 // Options configure the server.

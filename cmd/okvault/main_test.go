@@ -101,10 +101,47 @@ func TestWatcherRegeneratesIndex(t *testing.T) {
 	for {
 		idx, _ := os.ReadFile(filepath.Join(root, "faq", "index.md"))
 		if strings.Contains(string(idx), "[Brand new?](./b.md) - Added in Obsidian.") {
-			return
+			break
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("faq/index.md not regenerated:\n%s", idx)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// a note mentions ZED-1 before ZED is a configured project: no mention yet
+	_ = os.WriteFile(filepath.Join(root, "faq", "c.md"), []byte("---\ntype: FAQ\ntitle: C?\n---\nTracked in ZED-1.\n"), 0o644)
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		idx, _ := os.ReadFile(filepath.Join(root, "faq", "index.md"))
+		if strings.Contains(string(idx), "](./c.md)") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("c.md not loaded:\n%s", idx)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	time.Sleep(time.Second) // let the reload caused by the index rewrite settle
+	if res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "kb_ticket", Arguments: map[string]any{"key": "ZED-1"}}); err != nil {
+		t.Fatal(err)
+	} else if b, _ := json.Marshal(res.StructuredContent); strings.Contains(string(b), "faq/c.md") {
+		t.Fatalf("ZED is not configured yet: %s", b)
+	}
+	// editing only the team config while serving makes the key count
+	_ = os.WriteFile(filepath.Join(root, ".okvault.yaml"), []byte("tracker:\n  projects: [ZED]\n"), 0o644)
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "kb_ticket", Arguments: map[string]any{"key": "ZED-1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(res.StructuredContent)
+		if strings.Contains(string(b), `"path":"faq/c.md"`) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("config change not picked up: %s", b)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

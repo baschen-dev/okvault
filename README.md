@@ -71,7 +71,7 @@ The loop an agent follows (it is in the server instructions):
 2. Finishing: `kb_write` the decision, gotcha or FAQ with `tickets: [PROJ-123]`, updating existing notes where possible.
 3. A person reviews agent edits (`okvault review`) and marks them checked with `okvault verify vault/ops/x.md`. That records `verified: [{by, at}]` and pushes `stale_after` forward.
 
-Git: `log.md` merges by union; on an `index.md` conflict take either side and run `okvault index`. See [the FAQ](vault/faq/how-do-i-resolve-a-merge-conflict.md). Changes to `.okvault.yaml` are picked up while `serve` runs.
+Git: `log.md` merges by union; on an `index.md` conflict take either side and run `okvault index`. See [the FAQ](vault/faq/how-do-i-resolve-a-merge-conflict.md). Changes to `.okvault.yaml` are picked up while `serve` runs (Jira credentials are read when it starts).
 
 ## Vault layout
 

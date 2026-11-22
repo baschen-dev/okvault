@@ -37,7 +37,8 @@ knowledge lives here. okvault connects the two in both directions.
   `{by, at}` to `verified` (OKF) and sets `stale_after` one review interval
   ahead (`review_interval` in `.okvault.yaml`, default 180 days).
 - A note is *unverified* while its last `generated.at` is newer than its last
-  verification. Agents cannot verify notes.
+  verification. okvault gives agents no tool to verify; changes to `verified`
+  made any other way show up in git review of the vault.
 
 ## Review queue
 
