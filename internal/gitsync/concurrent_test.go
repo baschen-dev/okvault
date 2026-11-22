@@ -55,7 +55,9 @@ func TestTwoServersOneCheckout(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 3; j++ {
-				if st := m.s.Sync(ctx); st.Problem != "" {
+				// two processes pushing at once: one push can lose the race; it is
+				// retried on the next sync, which must then succeed (checked below)
+				if st := m.s.Sync(ctx); st.Problem != "" && !strings.HasPrefix(st.Problem, "push failed") {
 					errs <- fmt.Errorf("sync: %s", st.Problem)
 				}
 				if _, err := m.s.CommitEdits(ctx); err != nil {
@@ -69,7 +71,9 @@ func TestTwoServersOneCheckout(t *testing.T) {
 	for err := range errs {
 		t.Error(err)
 	}
-	a.s.Sync(ctx)
+	if st := a.s.Sync(ctx); st.Problem != "" || st.Unpushed != 0 {
+		t.Fatalf("final sync: %+v", st)
+	}
 	log := git(t, a.dir, "log", "--format=%s", "origin/main")
 	for i := 0; i < 2; i++ {
 		for j := 0; j < n; j++ {
