@@ -41,13 +41,14 @@ type Status struct {
 
 // Syncer commits vault changes and syncs them with the remote.
 type Syncer struct {
-	o    Options
-	r    *repo
-	gmu  sync.Mutex // serialises git commands
-	smu  sync.Mutex
-	st   Status
-	kick chan struct{}
-	edit atomic.Int64 // unix nanos of the last change seen by the watcher
+	o      Options
+	r      *repo
+	gmu    sync.Mutex // serialises git commands
+	syncMu sync.Mutex // one Sync at a time
+	smu    sync.Mutex
+	st     Status
+	kick   chan struct{}
+	edit   atomic.Int64 // unix nanos of the last change seen by the watcher
 }
 
 // New opens the git repository holding the vault.
@@ -226,22 +227,22 @@ func (s *Syncer) CommitEdits(ctx context.Context) (string, error) {
 // Sync fetches, rebases local commits on the remote and pushes them (push
 // mode), or keeps the personal branch rebased on the base branch, pushed, and
 // proposed in one pull request (pr mode). It returns the resulting status.
+//
+// Only the rebase holds the vault's write lock: fetching, pushing and the
+// GitHub API run without it, so kb_write never waits on the network.
 func (s *Syncer) Sync(ctx context.Context) Status {
 	mode := s.Mode()
 	if mode != config.GitPush && mode != config.GitPR {
 		return s.Status()
 	}
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
 	var err error
-	_ = s.o.Vault.Exclusive(func(l vault.Locked) error {
-		s.gmu.Lock()
-		defer s.gmu.Unlock()
-		if mode == config.GitPush {
-			err = s.syncPush(ctx, l)
-		} else {
-			err = s.syncPR(ctx, l)
-		}
-		return nil
-	})
+	if mode == config.GitPush {
+		err = s.syncPush(ctx)
+	} else {
+		err = s.syncPR(ctx)
+	}
 	s.update(func(st *Status) {
 		st.LastSync = time.Now()
 		st.Problem = ""
@@ -255,6 +256,16 @@ func (s *Syncer) Sync(ctx context.Context) Status {
 	return s.Status()
 }
 
+// locked runs fn holding the vault write lock (no writes, watcher paused) and
+// the git lock.
+func (s *Syncer) locked(fn func(vault.Locked) error) error {
+	return s.o.Vault.Exclusive(func(l vault.Locked) error {
+		s.gmu.Lock()
+		defer s.gmu.Unlock()
+		return fn(l)
+	})
+}
+
 func (s *Syncer) fetch(ctx context.Context) error {
 	remote := s.o.Config().Remote
 	if _, err := s.r.run(ctx, "fetch", "-q", "--prune", remote); err != nil {
@@ -263,49 +274,60 @@ func (s *Syncer) fetch(ctx context.Context) error {
 	return nil
 }
 
-func (s *Syncer) syncPush(ctx context.Context, l vault.Locked) error {
+func (s *Syncer) syncPush(ctx context.Context) error {
 	remote := s.o.Config().Remote
-	branch := s.r.currentBranch(ctx)
-	if branch == "" {
-		return errors.New("HEAD is detached; check out a branch so okvault can push")
-	}
-	s.update(func(st *Status) { st.Branch, st.Base, st.PR = branch, "", "" })
 	if err := s.fetch(ctx); err != nil {
 		return err
 	}
-	up := s.r.line(ctx, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	if up == "" && s.r.rev(ctx, remote+"/"+branch) != "" {
-		up = remote + "/" + branch
-	}
-	if up != "" {
-		if err := s.rebase(ctx, l, up, ""); err != nil {
+	var branch, up, head string
+	err := s.locked(func(l vault.Locked) error {
+		branch = s.r.currentBranch(ctx)
+		if branch == "" {
+			return errors.New("HEAD is detached; check out a branch so okvault can push")
+		}
+		up = s.r.line(ctx, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+		if up == "" && s.r.rev(ctx, remote+"/"+branch) != "" {
+			up = remote + "/" + branch
+		}
+		if up != "" {
+			if err := s.rebase(ctx, l, up, ""); err != nil {
+				return err
+			}
+		}
+		if err := s.regenCommit(ctx, l); err != nil {
 			return err
 		}
-	}
-	if err := s.regenCommit(ctx, l); err != nil {
+		head = s.r.rev(ctx, "HEAD")
+		return nil
+	})
+	s.update(func(st *Status) { st.Branch, st.Base, st.PR = branch, "", "" })
+	if err != nil {
 		return err
 	}
-	if up == "" || s.r.count(ctx, up+"..HEAD") > 0 {
-		args := []string{"push", "-q", remote, "HEAD"}
-		if up == "" {
-			args = []string{"push", "-q", "-u", remote, "HEAD"}
+	if up != "" && s.r.count(ctx, up+".."+head) == 0 {
+		s.update(func(st *Status) { st.Unpushed = 0 })
+		return nil
+	}
+	dst := branch
+	if up != "" {
+		dst = strings.TrimPrefix(up, remote+"/")
+	}
+	if _, err := s.r.run(ctx, "push", "-q", remote, head+":refs/heads/"+dst); err != nil {
+		if up != "" {
+			s.update(func(st *Status) { st.Unpushed = s.r.count(ctx, up+"..HEAD") })
 		}
-		if _, err := s.r.run(ctx, args...); err != nil {
-			s.update(func(st *Status) { st.Unpushed = s.r.count(ctx, "@{u}..HEAD") })
-			return fmt.Errorf("push failed; okvault retries on the next sync: %w", err)
-		}
+		return fmt.Errorf("push failed; okvault retries on the next sync: %w", err)
+	}
+	if up == "" {
+		_, _ = s.r.run(ctx, "branch", "-q", "--set-upstream-to="+remote+"/"+dst, branch)
 	}
 	s.update(func(st *Status) { st.Unpushed = 0 })
 	return nil
 }
 
-func (s *Syncer) syncPR(ctx context.Context, l vault.Locked) error {
-	g := s.o.Config()
-	remote := g.Remote
+func (s *Syncer) syncPR(ctx context.Context) error {
+	remote := s.o.Config().Remote
 	if err := s.fetch(ctx); err != nil {
-		return err
-	}
-	if err := s.ensureBranch(ctx); err != nil {
 		return err
 	}
 	b, base := s.branch(ctx), s.base(ctx)
@@ -314,42 +336,55 @@ func (s *Syncer) syncPR(ctx context.Context, l vault.Locked) error {
 	if s.r.rev(ctx, target) == "" {
 		return fmt.Errorf("%s does not exist; set git.base", target)
 	}
+	gh, ghErr := s.github(ctx)
+	var merged *PullRequest
+	if gh != nil && gh.Token != "" {
+		merged, _ = gh.LatestMerged(ctx, b) // network: before taking the lock
+	}
 	pushedRef := "refs/okvault/pushed/" + b
 	remoteHead := s.r.rev(ctx, remote+"/"+b)
-	if remoteHead != "" && remoteHead != s.r.rev(ctx, pushedRef) && !s.r.isAncestor(ctx, remoteHead, "HEAD") {
-		return fmt.Errorf("%s/%s has commits okvault did not push (a teammate's fix?); okvault will not overwrite them. Merge them into %s by hand, or set git.branch to a new name", remote, b, b)
-	}
-	gh, ghErr := s.github(ctx)
-	// After a squash merge the branch's commits are not ancestors of base, so a
-	// plain rebase would replay them. Drop what the merged pull request carried.
-	if gh != nil && gh.Token != "" {
-		if pr, err := gh.LatestMerged(ctx, b); err == nil && pr != nil && pr.Head.SHA != "" && s.r.isAncestor(ctx, pr.Head.SHA, "HEAD") {
-			if s.r.rev(ctx, "HEAD") == pr.Head.SHA {
+	var head string
+	err := s.locked(func(l vault.Locked) error {
+		if err := s.ensureBranch(ctx); err != nil {
+			return err
+		}
+		if remoteHead != "" && remoteHead != s.r.rev(ctx, pushedRef) && !s.r.isAncestor(ctx, remoteHead, "HEAD") {
+			return fmt.Errorf("%s/%s has commits okvault did not push (a teammate's fix?); okvault will not overwrite them. Merge them into %s by hand, or set git.branch to a new name", remote, b, b)
+		}
+		// After a squash or rebase merge the branch's commits are not in base, so
+		// a plain rebase would replay them: drop what the merged pull request
+		// carried. A merge-commit merge needs nothing (its head is in base).
+		if m := merged; m != nil && m.Head.SHA != "" && s.r.isAncestor(ctx, m.Head.SHA, "HEAD") && !s.r.isAncestor(ctx, m.Head.SHA, target) {
+			if s.r.rev(ctx, "HEAD") == m.Head.SHA {
 				if _, err := s.r.run(ctx, "reset", "-q", "--keep", target); err != nil {
-					return fmt.Errorf("pull request #%d was merged but %s could not be reset to %s: %w", pr.Number, b, target, err)
+					return fmt.Errorf("pull request #%d was merged but %s could not be reset to %s: %w", m.Number, b, target, err)
 				}
-			} else if err := s.rebase(ctx, l, target, pr.Head.SHA); err != nil {
+			} else if err := s.rebase(ctx, l, target, m.Head.SHA); err != nil {
 				return err
 			}
 			s.update(func(st *Status) { st.PR = "" })
 		}
-	}
-	if err := s.rebase(ctx, l, target, ""); err != nil {
+		if err := s.rebase(ctx, l, target, ""); err != nil {
+			return err
+		}
+		if err := s.regenCommit(ctx, l); err != nil {
+			return err
+		}
+		head = s.r.rev(ctx, "HEAD")
+		return nil
+	})
+	if err != nil {
 		return err
 	}
-	if err := s.regenCommit(ctx, l); err != nil {
-		return err
-	}
-	ahead := s.r.count(ctx, target+"..HEAD")
+	ahead := s.r.count(ctx, target+".."+head)
 	if ahead == 0 {
 		s.update(func(st *Status) { st.Unpushed, st.PR = 0, "" })
 		return nil
 	}
-	head := s.r.rev(ctx, "HEAD")
 	if head != remoteHead {
-		// Our own branch, rebased: replace it, but only if it is still what we last saw.
+		// Our own branch, rebased: replace it, but only if it is still what we saw.
 		lease := "--force-with-lease=refs/heads/" + b + ":" + remoteHead
-		if _, err := s.r.run(ctx, "push", "-q", lease, remote, "HEAD:refs/heads/"+b); err != nil {
+		if _, err := s.r.run(ctx, "push", "-q", lease, remote, head+":refs/heads/"+b); err != nil {
 			s.update(func(st *Status) { st.Unpushed = ahead })
 			return fmt.Errorf("push to %s/%s failed; okvault retries on the next sync: %w", remote, b, err)
 		}
@@ -363,7 +398,7 @@ func (s *Syncer) syncPR(ctx context.Context, l vault.Locked) error {
 		s.update(func(st *Status) { st.PR = gh.CompareURL(base, b) })
 		return fmt.Errorf("pushed %s; no GitHub token (GH_TOKEN, or `gh auth login`), so open the pull request at %s", b, gh.CompareURL(base, b))
 	}
-	pr, err := gh.EnsurePR(ctx, b, base, s.prTitle(ctx), s.prBody(ctx, target, b, base))
+	pr, err := gh.EnsurePR(ctx, b, base, s.prTitle(ctx), s.prBody(ctx, target+".."+head, b, base))
 	if pr != nil {
 		s.update(func(st *Status) { st.PR = pr.URL })
 	}
@@ -378,8 +413,8 @@ func (s *Syncer) prTitle(ctx context.Context) string {
 	return "docs(kb): knowledge updates from " + who
 }
 
-func (s *Syncer) prBody(ctx context.Context, target, b, base string) string {
-	log := s.r.line(ctx, "log", "--reverse", "--format=- %s", target+"..HEAD")
+func (s *Syncer) prBody(ctx context.Context, revs, b, base string) string {
+	log := s.r.line(ctx, "log", "--reverse", "--format=- %s", revs)
 	return "Changes recorded by okvault:\n\n" + log + "\n\n" +
 		"okvault keeps `" + b + "` rebased on `" + base + "` and force-pushes it, so push fixes to another branch, " +
 		"or suggest them in review. Review the notes as you would code; merging publishes them to the team.\n"
@@ -504,11 +539,15 @@ func (s *Syncer) rebase(ctx context.Context, l vault.Locked, onto, upstream stri
 				_, _ = s.r.run(ctx, "checkout", "--theirs", "--", p)
 			}
 		}
-		if _, rerr := l.RegenerateIndexes(); rerr != nil {
+		regen, rerr := l.RegenerateIndexes()
+		if rerr != nil {
 			_, _ = s.r.run(ctx, "rebase", "--abort")
 			return rerr
 		}
-		if _, aerr := s.r.run(ctx, "add", "-A", "--", s.r.vaultSpec()); aerr != nil {
+		// stage only what was resolved or regenerated: untracked notes being
+		// typed in Obsidian are still in the tree and must stay out
+		stage := append(append([]string{}, unmerged...), s.r.toRepo(regen)...)
+		if _, aerr := s.r.run(ctx, append([]string{"add", "--"}, stage...)...); aerr != nil {
 			_, _ = s.r.run(ctx, "rebase", "--abort")
 			return aerr
 		}

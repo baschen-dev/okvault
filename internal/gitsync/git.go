@@ -70,6 +70,10 @@ func (r *repo) runEnv(ctx context.Context, env []string, args ...string) (string
 		"GIT_EDITOR=true",       // rebase --continue keeps messages
 		"LC_ALL=C",              // stable messages to match on
 	)
+	if os.Getenv("GIT_SSH_COMMAND") == "" {
+		// fail instead of waiting for a passphrase or host-key prompt nobody sees
+		cmd.Env = append(cmd.Env, "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
+	}
 	cmd.Env = append(cmd.Env, env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

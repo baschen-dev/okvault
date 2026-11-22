@@ -159,9 +159,18 @@ func TestPushRebasesOnTeammate(t *testing.T) {
 	}
 	// Bob has not pulled: his note in the same folder conflicts in faq/index.md and log.md
 	b.write(t, "faq/beta.md", "Beta?", "b")
+	// and he is typing a new note in Obsidian that okvault must not commit
+	writeFile(t, b.dir, "faq/draft.md", "---\ntype: FAQ\ntitle: Draft?\n---\nhalf a thought\n")
 	if st := b.s.Sync(ctx); st.Problem != "" || st.Unpushed != 0 {
 		t.Fatalf("bob: %+v", st)
 	}
+	if st := git(t, b.dir, "status", "--porcelain"); st != "?? faq/draft.md" {
+		t.Errorf("draft should still be untracked, status = %q", st)
+	}
+	if strings.Contains(git(t, b.dir, "log", "--name-only", "--format=", "origin/main"), "draft.md") {
+		t.Error("the untracked draft was pushed")
+	}
+	_ = os.Remove(filepath.Join(b.dir, "faq", "draft.md"))
 	idx := git(t, b.dir, "show", "origin/main:faq/index.md")
 	for _, want := range []string{"Alpha?", "Beta?", "Seed?"} {
 		if !strings.Contains(idx, want) {
@@ -348,6 +357,42 @@ func TestPRMode(t *testing.T) {
 	}
 	if strings.Contains(fake.body, "one.md") || !strings.Contains(fake.body, "three.md") {
 		t.Errorf("second pr body:\n%s", fake.body)
+	}
+}
+
+func TestPRModeAfterMergeCommit(t *testing.T) {
+	origin := world(t, "")
+	fake := &fakeGitHub{}
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	gh := &GitHub{API: srv.URL, Web: "https://github.com", Owner: "o", Repo: "r", Token: "tok", HTTP: srv.Client()}
+	a := clone(t, origin, "Alice", "", config.Git{Mode: "pr"}, gh)
+	b := clone(t, origin, "Bob", "", config.Git{Mode: "push"}, nil)
+	ctx := context.Background()
+	a.write(t, "faq/one.md", "One?", "1")
+	if st := a.s.Sync(ctx); st.Problem != "" {
+		t.Fatal(st.Problem)
+	}
+	head := git(t, a.dir, "rev-parse", "origin/okvault/alice")
+	git(t, b.dir, "fetch", "-q", "origin")
+	git(t, b.dir, "merge", "-q", "--no-ff", "-m", "Merge pull request #1", "origin/okvault/alice")
+	git(t, b.dir, "push", "-q", "origin", "main")
+	now := time.Now()
+	fake.mu.Lock()
+	fake.prs[0].State, fake.prs[0].MergedAt, fake.prs[0].Head.SHA = "closed", &now, head
+	fake.mu.Unlock()
+	// Bob keeps working on main after the merge
+	b.write(t, "faq/bob.md", "Bob?", "b")
+	if st := b.s.Sync(ctx); st.Problem != "" {
+		t.Fatal(st.Problem)
+	}
+	a.write(t, "faq/two.md", "Two?", "2")
+	if st := a.s.Sync(ctx); st.Problem != "" || fake.posts != 2 {
+		t.Fatalf("status %+v posts=%d", st, fake.posts)
+	}
+	got := git(t, a.dir, "log", "--format=%s", "origin/main..origin/okvault/alice")
+	if got != "docs(kb): add faq/two.md" {
+		t.Errorf("new PR carries:\n%s", got)
 	}
 }
 

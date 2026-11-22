@@ -40,7 +40,7 @@ Team work and tickets:
 - The tracker is read-only here: never claim to have updated a ticket.
 
 Git (when the vault turns it on): kb_write commits each change, and okvault rebases and pushes in the background. kb_write and kb_review report the sync state.
-- In pr mode a change reaches the team only when its GitHub pull request is merged: give the user the pull_request link after writing.
+- In pr mode a change reaches the team only when its GitHub pull request is merged. The link appears once the background sync has pushed (a few seconds after the first write): give it to the user from kb_write's or kb_review's sync field.
 - If sync reports a problem (a conflict, a failed push), tell the user what it says; do not rewrite git history yourself to get around it.`
 
 // Options configure the server.
