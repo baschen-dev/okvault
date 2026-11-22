@@ -101,3 +101,26 @@ func TestSnippet(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestAskRejectsPartialMatches(t *testing.T) {
+	ix := build(t, map[string]string{
+		"faq/what.md":    "---\ntype: FAQ\ntitle: What is okvault?\n---\nAn MCP server.\n",
+		"faq/release.md": corpus["faq/release.md"],
+	})
+	for _, q := range []string{
+		"what is the okvault license?",
+		"how do I install okvault on windows",
+		"release notes format",
+	} {
+		a, err := ix.Ask(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a.Confident {
+			t.Errorf("%q: must not be confident, matched %q (%.2f)", q, a.Question, a.Confidence)
+		}
+	}
+	if a, _ := ix.Ask("what's okvault"); !a.Confident || a.Path != "faq/what.md" {
+		t.Errorf("short exact-ish question should match: %+v", a)
+	}
+}

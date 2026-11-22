@@ -12,7 +12,7 @@ Researched 2026-11-22. This note records the options looked at and why okvault i
 
 ## Storage format: Open Knowledge Format (OKF)
 
-[OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) is Google Cloud's vendor-neutral spec for knowledge as Markdown. It was announced in June 2026 as v0.1 and is now at **v0.2**.
+[OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) is Google Cloud's vendor-neutral spec for knowledge as Markdown. The spec itself says **v0.2**, which supersedes v0.1. Secondary sources date the v0.1 announcement to June 2026; the primary announcement page could not be fetched.
 
 - **Bundle and concepts.** A bundle is a directory of `.md` files, and each file is one *concept*.
 - **Frontmatter.** Each concept starts with YAML frontmatter. Only `type` is required.
@@ -36,7 +36,7 @@ Researched 2026-11-22. This note records the options looked at and why okvault i
   - Obsidian writes wikilinks by default, and those don't render on GitHub or in OKF tools.
   - The committed `.obsidian/app.json` therefore sets `useMarkdownLinks: true` and `newLinkFormat: relative`.
   - Relative links resolve the same way in Obsidian, on GitHub and for OKF consumers.
-  - The `/`-prefixed form that OKF recommends is avoided, because it isn't reliably resolved as vault-root in Obsidian.
+  - They were chosen over the `/`-prefixed form that OKF recommends because they are known to work in all three. Whether Obsidian resolves `/`-prefixed links from the vault root was not verified.
   - okvault still parses wikilinks, for hand-written notes.
 - **File names.** Kebab-case, so links need no `%20` escaping.
 - **What is committed.**
@@ -74,9 +74,10 @@ If you want repo-scanning and auto-generated knowledge, superops-team/okf covers
   - The index lives in memory and is rebuilt at start-up and on file change. A few thousand notes take milliseconds.
   - Embeddings are a possible later addition behind the same `search` package. They should be optional, so the binary stays dependency-free.
 - **FAQ fast path.**
-  1. The question is normalised and compared with every FAQ title and alias.
-  2. An exact match, or Dice word-overlap ≥ 0.6, returns the stored answer.
-  3. Anything lower returns `confident: false` plus BM25 hits, so the agent never gets a wrong answer stated as fact.
+  1. The question is compared with every FAQ title and alias.
+  2. A normalised exact match returns the stored answer.
+  3. Otherwise both sides go through the index's English analyzer (stop words, Porter stemming). The answer is returned only when the Dice overlap is ≥ 0.6 **and** the FAQ covers ≥ 75% of the query's terms, so a one-keyword FAQ cannot capture longer questions that merely contain its keyword.
+  4. Anything else returns `confident: false` plus BM25 hits, so the agent never gets a wrong answer stated as fact.
 
 ## Language and libraries
 

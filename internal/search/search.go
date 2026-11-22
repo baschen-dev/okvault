@@ -103,7 +103,7 @@ func (ix *Index) Rebuild(s *vault.Snapshot) error {
 		if IsFAQ(c) {
 			for _, q := range append([]string{c.Title}, c.Aliases...) {
 				if n := normalize(q); n != "" {
-					faq = append(faq, faqEntry{Path: p, Question: q, norm: n, tokens: tokenSet(n)})
+					faq = append(faq, faqEntry{Path: p, Question: q, norm: n, tokens: terms(q)})
 				}
 			}
 		}
@@ -240,31 +240,42 @@ type Answer struct {
 	Related    []Hit   `json:"related,omitempty"`
 }
 
-// Threshold is the minimum question similarity for a confident FAQ answer.
-const Threshold = 0.6
+// Thresholds for a confident FAQ answer (see vault/faq/how-does-kb-ask-decide.md).
+const (
+	Threshold   = 0.6  // minimum Dice overlap between query and FAQ question terms
+	MinCoverage = 0.75 // minimum share of the query's terms found in the FAQ question
+)
 
 // Ask answers a question from FAQ entries when it is confident; otherwise it
 // returns the best search hits so the agent can read further.
+//
+// Confident means: the normalised question equals an FAQ title or alias, or
+// the Dice overlap of analysed terms is >= Threshold AND the FAQ question
+// covers >= MinCoverage of the query's terms. Coverage stops a one-keyword
+// FAQ ("What is okvault?") from capturing "what is the okvault license?".
 func (ix *Index) Ask(question string) (*Answer, error) {
 	n := normalize(question)
-	qt := tokenSet(n)
+	qt := terms(question)
 	ix.mu.RLock()
-	best, bestScore := faqEntry{}, 0.0
+	best, bestScore, bestOK := faqEntry{}, 0.0, false
 	for _, f := range ix.faq {
-		var s float64
+		var dice float64
+		ok := false
 		if f.norm == n {
-			s = 1
+			dice, ok = 1, true
 		} else {
-			s = similarity(qt, f.tokens)
+			var cov float64
+			dice, cov = overlap(qt, f.tokens)
+			ok = dice >= Threshold && cov >= MinCoverage
 		}
-		if s > bestScore {
-			best, bestScore = f, s
+		if (ok && !bestOK) || (ok == bestOK && dice > bestScore) {
+			best, bestScore, bestOK = f, dice, ok
 		}
 	}
 	snap := ix.snap
 	ix.mu.RUnlock()
 
-	if bestScore >= Threshold {
+	if bestOK {
 		c := snap.Concepts[best.Path]
 		return &Answer{Confident: true, Confidence: round(bestScore), Path: best.Path, Question: best.Question, Answer: strings.TrimSpace(c.Body)}, nil
 	}
@@ -281,7 +292,7 @@ func (ix *Index) Ask(question string) (*Answer, error) {
 
 // Snippet returns the line of body that best matches the query terms.
 func Snippet(body, q string, max int) string {
-	terms := strings.Fields(normalize(q))
+	qt := terms(q)
 	lines := strings.Split(body, "\n")
 	bestLine, bestN := "", 0
 	for _, l := range lines {
@@ -289,10 +300,10 @@ func Snippet(body, q string, max int) string {
 		if t == "" || strings.HasPrefix(t, "```") {
 			continue
 		}
-		ll := strings.ToLower(t)
+		lt := terms(t)
 		n := 0
-		for _, term := range terms {
-			if len(term) > 2 && strings.Contains(ll, stem(term)) {
+		for term := range qt {
+			if lt[term] {
 				n++
 			}
 		}
@@ -314,13 +325,9 @@ func Snippet(body, q string, max int) string {
 	return bestLine
 }
 
-var stop = map[string]bool{
-	"a": true, "an": true, "the": true, "is": true, "are": true, "do": true, "does": true, "i": true,
-	"to": true, "of": true, "in": true, "on": true, "for": true, "and": true, "or": true, "how": true,
-	"what": true, "can": true, "we": true, "you": true, "my": true, "our": true, "it": true, "with": true,
-	"should": true, "be": true, "which": true, "where": true, "when": true, "why": true, "this": true,
-	"that": true, "there": true, "about": true, "me": true, "use": false,
-}
+// enAnalyzer is the same English analyzer the index uses (stop words + Porter stemming),
+// so FAQ matching and search agree on what a term is.
+var enAnalyzer = bleve.NewIndexMapping().AnalyzerNamed(en.AnalyzerName)
 
 func normalize(s string) string {
 	var b strings.Builder
@@ -334,37 +341,27 @@ func normalize(s string) string {
 	return strings.Join(strings.Fields(b.String()), " ")
 }
 
-func stem(t string) string {
-	for _, suf := range []string{"ing", "ies", "es", "s", "ed"} {
-		if len(t) > len(suf)+2 && strings.HasSuffix(t, suf) {
-			return strings.TrimSuffix(t, suf)
-		}
-	}
-	return t
-}
-
-func tokenSet(norm string) map[string]bool {
+// terms returns the set of analysed content terms of s.
+func terms(s string) map[string]bool {
 	out := map[string]bool{}
-	for _, t := range strings.Fields(norm) {
-		if !stop[t] {
-			out[stem(t)] = true
-		}
+	for _, tok := range enAnalyzer.Analyze([]byte(s)) {
+		out[string(tok.Term)] = true
 	}
 	return out
 }
 
-// similarity is the Dice coefficient over content tokens.
-func similarity(a, b map[string]bool) float64 {
-	if len(a) == 0 || len(b) == 0 {
-		return 0
+// overlap returns the Dice coefficient of q and f and the share of q found in f.
+func overlap(q, f map[string]bool) (dice, coverage float64) {
+	if len(q) == 0 || len(f) == 0 {
+		return 0, 0
 	}
 	inter := 0
-	for t := range a {
-		if b[t] {
+	for t := range q {
+		if f[t] {
 			inter++
 		}
 	}
-	return 2 * float64(inter) / float64(len(a)+len(b))
+	return 2 * float64(inter) / float64(len(q)+len(f)), float64(inter) / float64(len(q))
 }
 
 func lowerAll(in []string) []string {
