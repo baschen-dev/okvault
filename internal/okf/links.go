@@ -20,11 +20,17 @@ var (
 	inline   = regexp.MustCompile("`[^`\\n]*`")
 )
 
+// StripCode removes fenced code blocks and inline code spans, so references
+// shown as examples are not treated as real links or ticket mentions.
+func StripCode(body string) string {
+	return inline.ReplaceAllString(fence.ReplaceAllString(body, ""), "")
+}
+
 // ExtractLinks returns links to other vault documents found in body.
 // from is the vault-relative path of the document containing them.
 // Both OKF forms are handled: "/abs/path.md" (bundle-relative) and "./rel.md".
 func ExtractLinks(from, body string) []Link {
-	body = inline.ReplaceAllString(fence.ReplaceAllString(body, ""), "")
+	body = StripCode(body)
 	dir := path.Dir(from)
 	seen := map[string]bool{}
 	var out []Link

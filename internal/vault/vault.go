@@ -6,6 +6,8 @@
 package vault
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -17,8 +19,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/baschen-dev/okvault/internal/config"
 	"github.com/baschen-dev/okvault/internal/okf"
 )
+
+// TicketRef is a note related to a ticket.
+type TicketRef struct {
+	Path   string `json:"path"`
+	Linked bool   `json:"linked"` // listed in the note's `tickets` frontmatter; false = mentioned in the body
+}
+
+// Revision identifies the exact bytes of a note on disk. kb_write accepts it
+// as base_revision so two writers cannot silently overwrite each other.
+func Revision(src []byte) string {
+	h := sha256.Sum256(src)
+	return hex.EncodeToString(h[:6])
+}
 
 // Issue is a problem found while loading (or linting) a file.
 type Issue struct {
@@ -35,6 +51,22 @@ type Snapshot struct {
 	Issues    []Issue
 	Dirs      map[string]bool // directories containing concepts (vault-relative, "." is root)
 	LoadedAt  time.Time
+
+	Config      *config.Config         // team settings from .okvault.yaml (never nil)
+	Revisions   map[string]string      // note path -> revision of its bytes on disk
+	Tickets     map[string][]TicketRef // ticket key -> related notes, linked first
+	NoteTickets map[string][]string    // note path -> ticket keys (linked and mentioned)
+}
+
+// Owners returns a note's owners: its `owners` frontmatter, else the folder
+// default from .okvault.yaml.
+func (s *Snapshot) Owners(p string) []string {
+	if c, ok := s.Concepts[p]; ok {
+		if o := c.List("owners"); len(o) > 0 {
+			return o
+		}
+	}
+	return s.Config.OwnersFor(p)
 }
 
 // Sorted returns concept paths in lexical order.
@@ -101,9 +133,24 @@ func (v *Vault) Reload() (*Snapshot, error) {
 		Broken:    map[string][]string{},
 		Dirs:      map[string]bool{".": true},
 		LoadedAt:  time.Now(),
+
+		Revisions:   map[string]string{},
+		Tickets:     map[string][]TicketRef{},
+		NoteTickets: map[string][]string{},
 	}
+	cfg, err := config.Load(v.Root)
+	if err != nil {
+		// keep serving with the last good config; lint reports the problem
+		s.Issues = append(s.Issues, Issue{config.File, strings.TrimPrefix(err.Error(), config.File+": ")})
+		if prev := v.Snapshot(); prev != nil {
+			cfg = prev.Config
+		} else {
+			cfg, _ = config.Parse(nil)
+		}
+	}
+	s.Config = cfg
 	raw := map[string][]okf.Link{}
-	err := filepath.WalkDir(v.Root, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(v.Root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -133,7 +180,9 @@ func (v *Vault) Reload() (*Snapshot, error) {
 		}
 		s.Concepts[rel] = c
 		s.Dirs[path.Dir(rel)] = true
+		s.Revisions[rel] = Revision(src)
 		raw[rel] = okf.ExtractLinks(rel, c.Body)
+		s.addTickets(rel, c)
 		return nil
 	})
 	if err != nil {
@@ -179,6 +228,15 @@ func (v *Vault) Reload() (*Snapshot, error) {
 			sort.Strings(m[k])
 		}
 	}
+	for k, refs := range s.Tickets {
+		sort.Slice(refs, func(i, j int) bool {
+			if refs[i].Linked != refs[j].Linked {
+				return refs[i].Linked
+			}
+			return refs[i].Path < refs[j].Path
+		})
+		s.Tickets[k] = refs
+	}
 	sort.Slice(s.Issues, func(i, j int) bool { return s.Issues[i].Path < s.Issues[j].Path })
 	v.smu.Lock()
 	v.snap = s
@@ -187,6 +245,29 @@ func (v *Vault) Reload() (*Snapshot, error) {
 }
 
 func isReservedPath(p string) bool { return p != "" && okf.IsReserved(path.Base(p)) }
+
+// addTickets records the tickets a note lists in `tickets` (linked) and the
+// keys of configured projects it mentions outside code (mentioned).
+func (s *Snapshot) addTickets(p string, c *okf.Concept) {
+	seen := map[string]bool{}
+	add := func(k string, linked bool) {
+		if seen[k] {
+			return
+		}
+		seen[k] = true
+		s.Tickets[k] = append(s.Tickets[k], TicketRef{Path: p, Linked: linked})
+		s.NoteTickets[p] = append(s.NoteTickets[p], k)
+	}
+	for _, t := range c.List("tickets") {
+		if k, ok := config.NormalizeKey(t); ok {
+			add(k, true)
+		}
+	}
+	text := okf.StripCode(c.Title + "\n" + c.Description + "\n" + c.Body)
+	for _, k := range s.Config.TicketKeys(text) {
+		add(k, false)
+	}
+}
 
 // ErrInvalidPath is returned for write targets outside the vault or not allowed.
 var ErrInvalidPath = errors.New("vault: invalid path")
@@ -253,17 +334,27 @@ type WriteRequest struct {
 	Aliases     []string
 	Status      string
 	Body        string
-	Mode        string // "create" (fail if exists), "update" (fail if missing), "upsert"
-	Author      string // recorded in generated.by
-	Note        string // log message
+	Tickets     []string // ticket keys (replaces `tickets` when non-nil)
+	Owners      []string // owners (replaces `owners` when non-nil)
+	Mode        string   // "create" (fail if exists), "update" (fail if missing), "upsert"
+	Author      string   // recorded in generated.by
+	Note        string   // log message
+	// BaseRevision, when set, must equal the note's current revision (from
+	// kb_get); otherwise the write fails with ErrConflict instead of
+	// overwriting someone else's change.
+	BaseRevision string
 }
 
 // WriteResult reports what a write did.
 type WriteResult struct {
-	Path    string `json:"path"`
-	Created bool   `json:"created"`
-	Index   string `json:"index,omitempty"` // index file regenerated, if any
+	Path     string `json:"path"`
+	Created  bool   `json:"created"`
+	Revision string `json:"revision"`        // revision of the written note
+	Index    string `json:"index,omitempty"` // index file regenerated, if any
 }
+
+// ErrConflict means the note changed since the caller read it.
+var ErrConflict = errors.New("vault: conflict")
 
 // Write creates or updates a concept, then refreshes the directory index.md
 // and records the change in the root log.md.
@@ -289,6 +380,27 @@ func (v *Vault) Write(req WriteRequest, now time.Time) (*WriteResult, error) {
 		}
 	default:
 		return nil, fmt.Errorf("vault: unknown mode %q", req.Mode)
+	}
+	if req.BaseRevision != "" {
+		cur := "absent"
+		if exists {
+			cur = Revision(existing)
+		}
+		if cur != req.BaseRevision {
+			return nil, fmt.Errorf("%w: %s changed since revision %s (now %s); read it again with kb_get, merge, and retry",
+				ErrConflict, rel, req.BaseRevision, cur)
+		}
+	}
+	var tickets []string
+	for _, t := range req.Tickets {
+		k, ok := config.NormalizeKey(t)
+		if !ok {
+			return nil, fmt.Errorf("vault: %q is not a ticket key (e.g. PROJ-123)", t)
+		}
+		tickets = append(tickets, k)
+	}
+	if req.Tickets != nil && tickets == nil {
+		tickets = []string{}
 	}
 
 	var c *okf.Concept
@@ -316,6 +428,8 @@ func (v *Vault) Write(req WriteRequest, now time.Time) (*WriteResult, error) {
 		set("tags", req.Tags, req.Tags != nil),
 		set("aliases", req.Aliases, req.Aliases != nil),
 		set("status", req.Status, req.Status != ""),
+		set("tickets", tickets, tickets != nil),
+		set("owners", req.Owners, req.Owners != nil),
 		c.MarkGenerated(orDefault(req.Author, "okvault"), now),
 	); err != nil {
 		return nil, err
@@ -334,7 +448,7 @@ func (v *Vault) Write(req WriteRequest, now time.Time) (*WriteResult, error) {
 		return nil, err
 	}
 
-	res := &WriteResult{Path: rel, Created: !exists}
+	res := &WriteResult{Path: rel, Created: !exists, Revision: Revision(data)}
 	kind := "Update"
 	if !exists {
 		kind = "Creation"
@@ -374,7 +488,8 @@ func orDefault(s, d string) string {
 	return s
 }
 
-// RegenerateIndexes rewrites every okvault-owned index.md (and creates missing ones).
+// RegenerateIndexes rewrites every okvault-owned index.md (and creates missing
+// ones), and repairs log.md after a merge (see okf.NormalizeLog).
 // Hand-written index.md files without the generated marker are left alone.
 func (v *Vault) RegenerateIndexes() ([]string, error) {
 	v.mu.Lock()
@@ -389,6 +504,14 @@ func (v *Vault) RegenerateIndexes() ([]string, error) {
 		}
 		if p != "" {
 			written = append(written, p)
+		}
+	}
+	if src, err := v.ReadFile(okf.LogFile); err == nil {
+		if fixed := okf.NormalizeLog(src); string(fixed) != string(src) {
+			if err := v.writeFile(okf.LogFile, fixed); err != nil {
+				return written, err
+			}
+			written = append(written, okf.LogFile)
 		}
 	}
 	return written, nil

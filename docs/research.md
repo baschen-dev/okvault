@@ -108,10 +108,33 @@ If you want repo-scanning and auto-generated knowledge, superops-team/okf covers
 - **`--read-only` mode.** It removes `kb_write` entirely.
 - **Logging.** stdio mode logs only to stderr.
 
+## Teams and ticketing (added 2026-11-22)
+
+The same vault serves a team whose tasks live in Jira.
+
+- **Tickets stay in Jira.** Copying tickets into the vault would go stale, so notes only reference them.
+  - The OKF-compatible key `tickets: [PROJ-123]` links a note on purpose. A key in the text counts as a mention.
+  - Mentions are found only for project keys listed in `.okvault.yaml`. A generic `[A-Z]+-[0-9]+` pattern matches `UTF-8` and `ISO-8601`.
+  - Keys go into an exact-match keyword field, because the English analyzer splits `PROJ-123` into `proj` and `123`.
+- **Jira is read-only.** `GET /rest/api/{3|2}/issue/{key}` covers it. Cloud v3 returns descriptions and comments as ADF (JSON), which is flattened to text. Data Center v2 returns a wiki-markup string, kept as is.
+  - Auth: basic auth with email and API token on Cloud, and a bearer personal access token on Data Center.
+  - Credentials come only from the environment. The config rejects unknown keys and URLs with credentials, so a token can't be committed by mistake.
+  - Writing to Jira (comments, transitions) would post on a person's behalf, so it is left out.
+- **Trust uses OKF's own keys.**
+  - Agents stamp `generated`. People append to `verified` (a list of `{by, at}`), and that moves `stale_after` forward.
+  - "Unverified" means the note was generated after its last verification.
+  - Agents get no tool to verify, so the signal stays human.
+- **Concurrent writers.** Revisions are a short SHA-256 of the file bytes, and `base_revision` gives optimistic concurrency between agents, Obsidian and `git pull`.
+- **Git merges.**
+  - Generated `index.md` files are rebuilt rather than merged.
+  - `log.md` uses `merge=union`, and `okvault index` repairs duplicate date sections.
+  - Custom merge drivers were rejected because they need per-clone `.git/config`.
+
 ## Sources
 
 - [OKF spec v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md), [MarkTechPost announcement](https://www.marktechpost.com/2026/06/16/google-cloud-introduces-open-knowledge-format-okf-a-vendor-neutral-markdown-spec-for-giving-ai-agents-curated-context/), [GitBook: What is OKF?](https://www.gitbook.com/blog/what-is-okf-open-knowledge-format), [alexop.dev on OKF](https://alexop.dev/posts/open-knowledge-format-markdown-frontmatter-agent-knowledge/)
 - [superops-team/okf](https://github.com/superops-team/okf)
 - [Glama: Obsidian MCP servers](https://images.glama.ai/mcp/servers/integrations/obsidian), [Vault Cortex](https://raw.githubusercontent.com/aliasunder/vault-cortex/HEAD/README.md), [cyanheads/obsidian-mcp-server](https://docsearch.algolia.com/mcp/docs/repo/cyanheads/obsidian-mcp-server)
+- [Jira Cloud REST v3: get issue](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-get), [Atlassian Document Format](https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/)
 - [Go MCP SDK](https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk/mcp), [rmcp](https://docs.rs/crate/rmcp), [bleve scoring](https://github.com/blevesearch/bleve/blob/master/docs/scoring.md)
 - [Keyword search tied an 8B embedding model](https://towardsdatascience.com/keyword-search-tied-an-8b-embedding-model-at-picking-agent-tools/), [BM25 Wins at Scale](https://huggingface.co/papers/2607.26497.md), [agentmemory LongMemEval](https://raw.githubusercontent.com/rohitg00/agentmemory/HEAD/benchmark/LONGMEMEVAL.md)

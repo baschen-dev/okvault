@@ -19,8 +19,13 @@ written into the vault, so the whole vault stays committable.
 | description, tags | 2 |
 | body | 1 (plus an exact-phrase bonus) |
 
-Title and body also match with one typo, at a fifth of the weight. Filters
-(`type`, `tags`, `dir`) restrict results without changing their order.
+Title and body also match with one typo, at a fifth of the weight.
+A ticket key in the query (`PROJ-123`) also matches notes linked to or
+mentioning that ticket exactly, with boost 5; the English analyzer alone
+would split it into `proj` and `123`.
+
+Filters (`type`, `tags`, `dir`, `ticket`, `owner`) restrict results without
+changing their order.
 Notes with `status: deprecated` are left out unless `with_deprecated` is set.
 
 Related: [How does kb_ask decide it has an answer?](../faq/how-does-kb-ask-decide.md)

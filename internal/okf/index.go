@@ -97,3 +97,60 @@ func AppendLog(src []byte, at time.Time, kind, text string) []byte {
 	}
 	return []byte(strings.TrimRight(string(src), "\n") + "\n\n" + day + "\n\n" + entry + "\n")
 }
+
+// NormalizeLog merges log.md sections that share a date and orders them
+// newest first. Git merges of two branches that both logged on the same day
+// (with `merge=union`) produce duplicate headings; this repairs them.
+// Identical entry lines are kept once. A log with a heading that is not an
+// ISO date is returned unchanged, for a person to fix.
+func NormalizeLog(src []byte) []byte {
+	lines := strings.Split(strings.ReplaceAll(string(src), "\r\n", "\n"), "\n")
+	var pre []string
+	sections := map[string][]string{}
+	var order []string
+	cur := ""
+	for _, l := range lines {
+		if strings.HasPrefix(l, "## ") {
+			d := strings.TrimSpace(strings.TrimPrefix(l, "## "))
+			if _, err := time.Parse("2006-01-02", d); err != nil {
+				return src
+			}
+			if _, ok := sections[d]; !ok {
+				order = append(order, d)
+				sections[d] = nil
+			}
+			cur = d
+			continue
+		}
+		if cur == "" {
+			pre = append(pre, l)
+			continue
+		}
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		dup := false
+		for _, e := range sections[cur] {
+			if e == l {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			sections[cur] = append(sections[cur], l)
+		}
+	}
+	if len(order) == 0 {
+		return src
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(order)))
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(strings.Join(pre, "\n"), "\n"))
+	for _, d := range order {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString("## " + d + "\n\n" + strings.Join(sections[d], "\n"))
+	}
+	return []byte(b.String() + "\n")
+}

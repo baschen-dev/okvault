@@ -1,0 +1,16 @@
+# okvault team settings. Committed with the vault; never put secrets here.
+# Jira credentials come from the environment: JIRA_API_TOKEN (+ JIRA_EMAIL on Jira Cloud).
+# See conventions/team-workflow.md.
+#
+# tracker:
+#   kind: jira                      # jira, or none for links only
+#   url: https://acme.atlassian.net
+#   projects: [PROJ, OPS]           # ticket keys to recognise in notes
+#   # api: "3"                      # default 3 on *.atlassian.net, else 2 (Data Center)
+#   # browse: https://jira.example.com/browse/{key}
+#
+# owners:                           # folder defaults; a note's own `owners` wins
+#   ops: [team-ops]
+#   .: [team-docs]
+#
+# review_interval: 180d             # how long `okvault verify` keeps a note fresh

@@ -191,7 +191,7 @@ func New(path, typ string) *Concept {
 
 // MarkGenerated records agent provenance (`generated: {by, at}`).
 func (c *Concept) MarkGenerated(by string, at time.Time) error {
-	return c.Set("generated", map[string]string{"by": by, "at": at.Format(time.RFC3339)})
+	return c.Set("generated", stampYAML{by, at.Format(time.RFC3339)})
 }
 
 // Marshal renders the concept with frontmatter. Line endings are LF.

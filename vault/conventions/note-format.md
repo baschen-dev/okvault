@@ -21,8 +21,11 @@ Every note is one concept: one Markdown file with YAML frontmatter.
 | `aliases` | optional | Obsidian aliases; for an FAQ, other phrasings of the question |
 | `status` | optional | `draft`, `stable` (default) or `deprecated`; deprecated notes are hidden from search by default |
 | `sources` | optional | OKF provenance: list of `{resource, title, ...}` |
-| `stale_after` | optional | ISO 8601 timestamp; `okvault lint` warns once it passes |
+| `stale_after` | optional | ISO 8601 timestamp; `okvault lint` warns once it passes; `okvault verify` moves it ahead |
 | `generated` | set by okvault | `{by, at}` on notes written by an agent |
+| `verified` | set by `okvault verify` | OKF list of `{by, at}`: people who checked the note |
+| `tickets` | optional | Ticket keys this note documents, e.g. `[PROJ-123]`; see [Team workflow](team-workflow.md) |
+| `owners` | optional | People or groups responsible for the note; defaults come from `.okvault.yaml` |
 
 Unknown keys are kept as they are.
 

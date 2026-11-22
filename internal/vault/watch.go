@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/baschen-dev/okvault/internal/config"
 )
 
 // Watch reloads the vault when Markdown files change (debounced) and calls
@@ -83,6 +85,9 @@ func relevant(root, p string) bool {
 	rel, err := filepath.Rel(root, p)
 	if err != nil {
 		return false
+	}
+	if filepath.ToSlash(rel) == config.File {
+		return true // team config: ticket projects and owners change what is indexed
 	}
 	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
 		if strings.HasPrefix(seg, ".") || strings.HasPrefix(seg, "_") {

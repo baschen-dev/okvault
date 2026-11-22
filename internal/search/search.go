@@ -15,6 +15,7 @@ import (
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/blevesearch/bleve/v2/search/query"
 
+	"github.com/baschen-dev/okvault/internal/config"
 	"github.com/baschen-dev/okvault/internal/okf"
 	"github.com/baschen-dev/okvault/internal/vault"
 )
@@ -33,6 +34,8 @@ type doc struct {
 	Description string   `json:"description"`
 	Body        string   `json:"body"`
 	Status      string   `json:"status"`
+	Tickets     []string `json:"tickets"`
+	Owners      []string `json:"owners"`
 }
 
 // Index is a swappable in-memory search index.
@@ -68,6 +71,8 @@ func newMapping() mapping.IndexMapping {
 	dm.AddFieldMappingsAt("type", kw)
 	dm.AddFieldMappingsAt("tags", kw)
 	dm.AddFieldMappingsAt("status", kw)
+	dm.AddFieldMappingsAt("tickets", kw)
+	dm.AddFieldMappingsAt("owners", kw)
 	for _, f := range []string{"type_text", "tags_text", "title", "aliases", "description", "body"} {
 		dm.AddFieldMappingsAt(f, txt())
 	}
@@ -97,6 +102,7 @@ func (ix *Index) Rebuild(s *vault.Snapshot) error {
 			Tags: tags, TagsText: strings.Join(c.Tags, " "),
 			Title: c.Title, Aliases: strings.Join(c.Aliases, "\n"),
 			Description: c.Description, Body: c.Body, Status: strings.ToLower(c.Status),
+			Tickets: s.NoteTickets[p], Owners: normOwners(s.Owners(p)),
 		}); err != nil {
 			return err
 		}
@@ -134,6 +140,7 @@ type Hit struct {
 	Type        string   `json:"type"`
 	Description string   `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
+	Tickets     []string `json:"tickets,omitempty"`
 	Snippet     string   `json:"snippet,omitempty"`
 	Score       float64  `json:"score"`
 }
@@ -144,6 +151,8 @@ type Query struct {
 	Type           string
 	Tags           []string
 	Dir            string
+	Ticket         string // only notes linked to or mentioning this ticket key
+	Owner          string // only notes owned by this person or group
 	Limit          int
 	WithDeprecated bool
 }
@@ -182,6 +191,15 @@ func (ix *Index) Search(q Query) ([]Hit, error) {
 		tq := bleve.NewMatchQuery(text)
 		tq.SetField("type_text")
 		should = append(should, tq)
+		// the English analyzer splits PROJ-123 into "proj" and "123": match keys exactly
+		for _, w := range strings.Fields(text) {
+			if k, ok := config.NormalizeKey(strings.Trim(w, ".,;:!?()[]\"'")); ok {
+				kq := bleve.NewTermQuery(k)
+				kq.SetField("tickets")
+				kq.SetBoost(5)
+				should = append(should, kq)
+			}
+		}
 		must = append(must, bleve.NewDisjunctionQuery(should...))
 	}
 	if q.Type != "" {
@@ -193,6 +211,17 @@ func (ix *Index) Search(q Query) ([]Hit, error) {
 		tq := bleve.NewTermQuery(strings.ToLower(t))
 		tq.SetField("tags")
 		must = append(must, tq)
+	}
+	if q.Ticket != "" {
+		k, _ := config.NormalizeKey(q.Ticket)
+		kq := bleve.NewTermQuery(k)
+		kq.SetField("tickets")
+		must = append(must, kq)
+	}
+	if q.Owner != "" {
+		oq := bleve.NewTermQuery(normOwners([]string{q.Owner})[0])
+		oq.SetField("owners")
+		must = append(must, oq)
 	}
 	if d := strings.Trim(q.Dir, "/"); d != "" && d != "." {
 		pq := bleve.NewPrefixQuery(d + "/")
@@ -224,6 +253,7 @@ func (ix *Index) Search(q Query) ([]Hit, error) {
 		}
 		hits = append(hits, Hit{
 			Path: h.ID, Title: c.Title, Type: c.Type, Description: c.Description, Tags: c.Tags,
+			Tickets: ix.snap.NoteTickets[h.ID],
 			Snippet: Snippet(c.Body, text, 240), Score: round(h.Score),
 		})
 	}
@@ -398,5 +428,15 @@ func TopKeys(m map[string]int) []string {
 		}
 		return out[i] < out[j]
 	})
+	return out
+}
+
+// normOwners lower-cases owner names and drops a leading "@", so "@Alice"
+// and "alice" match.
+func normOwners(in []string) []string {
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(s), "@"))
+	}
 	return out
 }

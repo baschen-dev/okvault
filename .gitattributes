@@ -1,5 +1,7 @@
 * text=auto eol=lf
 *.md text eol=lf
+# log.md is append-only: keep both sides on merge; `okvault index` tidies duplicate dates
+vault/log.md merge=union
 *.go text eol=lf
 *.json text eol=lf
 *.png binary

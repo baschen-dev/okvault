@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/baschen-dev/okvault/internal/config"
 	"github.com/baschen-dev/okvault/internal/okf"
 )
 
@@ -44,11 +45,14 @@ func (v *Vault) Lint() []Finding {
 		if st := strings.ToLower(c.Status); st != "" && st != "draft" && st != "stable" && st != "deprecated" {
 			out = append(out, Finding{Warning, p, fmt.Sprintf("status %q is not draft|stable|deprecated", c.Status)})
 		}
-		if sa, ok := c.Get("stale_after").(string); ok {
-			if t, err := time.Parse(time.RFC3339, sa); err != nil {
-				out = append(out, Finding{Warning, p, "stale_after is not an ISO 8601 timestamp with offset"})
-			} else if time.Now().After(t) {
-				out = append(out, Finding{Warning, p, "stale: stale_after " + sa + " has passed"})
+		if t, present, ok := c.StaleAfter(); present && !ok {
+			out = append(out, Finding{Warning, p, "stale_after is not an ISO 8601 timestamp"})
+		} else if ok && time.Now().After(t) {
+			out = append(out, Finding{Warning, p, "stale: stale_after " + t.Format(time.RFC3339) + " has passed (run `okvault verify` after checking it)"})
+		}
+		for _, t := range c.List("tickets") {
+			if _, ok := config.NormalizeKey(t); !ok {
+				out = append(out, Finding{Warning, p, fmt.Sprintf("tickets: %q is not a ticket key (e.g. PROJ-123)", t)})
 			}
 		}
 		if strings.EqualFold(c.Type, "faq") {
@@ -83,6 +87,7 @@ func (v *Vault) Lint() []Finding {
 	}
 	if src, err := v.ReadFile(okf.LogFile); err == nil {
 		var prev string
+		seen := map[string]bool{}
 		for _, l := range strings.Split(strings.ReplaceAll(string(src), "\r\n", "\n"), "\n") {
 			if !strings.HasPrefix(l, "## ") {
 				continue
@@ -93,8 +98,12 @@ func (v *Vault) Lint() []Finding {
 				continue
 			}
 			if prev != "" && d > prev {
-				out = append(out, Finding{Error, okf.LogFile, "log entries must be newest first: " + d + " after " + prev})
+				out = append(out, Finding{Error, okf.LogFile, "log entries must be newest first: " + d + " after " + prev + " (run `okvault index` to fix)"})
 			}
+			if seen[d] {
+				out = append(out, Finding{Warning, okf.LogFile, "date " + d + " appears twice, usually after a git merge (run `okvault index` to fix)"})
+			}
+			seen[d] = true
 			prev = d
 		}
 	}
