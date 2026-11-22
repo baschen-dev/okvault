@@ -15,7 +15,7 @@ permissions:
 env:
   VAULT: .
   # Pin okvault like the actions below: a release tag or a commit SHA.
-  OKVAULT_VERSION: 132bc4d4b01d3a936fed1240703a0eec8d3a1641
+  OKVAULT_VERSION: 945cc0efc1484ef9503c0dd7068a112d969505f6
 
 jobs:
   check:
