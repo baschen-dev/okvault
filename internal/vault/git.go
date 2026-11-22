@@ -8,6 +8,9 @@ import (
 // Committer records changed vault files as a commit. gitsync implements it;
 // the vault calls it after each write while holding its write lock.
 type Committer interface {
+	// Begin is called before a write touches any file. It blocks other git
+	// work on the checkout (including other okvault processes) until end runs.
+	Begin() (end func(), err error)
 	// Commit commits exactly these vault-relative paths (nothing else that
 	// happens to be staged). It returns "" when there was nothing to commit.
 	Commit(paths []string, subject, body string) (sha string, err error)

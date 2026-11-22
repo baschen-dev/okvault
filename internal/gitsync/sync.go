@@ -43,7 +43,7 @@ type Status struct {
 type Syncer struct {
 	o      Options
 	r      *repo
-	gmu    sync.Mutex // serialises git commands
+	gmu    sync.Mutex // serialises this process's git work (see lock.go for other processes)
 	syncMu sync.Mutex // one Sync at a time
 	smu    sync.Mutex
 	st     Status
@@ -99,14 +99,13 @@ func (s *Syncer) Kick() {
 // Touched records that the watcher saw files change (for commit_edits).
 func (s *Syncer) Touched() { s.edit.Store(time.Now().UnixNano()) }
 
-// Commit implements vault.Committer: it commits exactly the given vault paths.
+// Commit implements vault.Committer: it commits exactly the given vault
+// paths. The vault calls it between Begin and its end function.
 func (s *Syncer) Commit(paths []string, subject, body string) (string, error) {
 	mode := s.Mode()
 	if mode == config.GitOff {
 		return "", nil
 	}
-	s.gmu.Lock()
-	defer s.gmu.Unlock()
 	ctx := context.Background()
 	if mode == config.GitPR {
 		if err := s.ensureBranch(ctx); err != nil {
@@ -191,8 +190,11 @@ func (s *Syncer) CommitEdits(ctx context.Context) (string, error) {
 	}
 	var sha string
 	err := s.o.Vault.Exclusive(func(l vault.Locked) error {
-		s.gmu.Lock()
-		defer s.gmu.Unlock()
+		unlock, err := s.lockGit()
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		if s.Mode() == config.GitPR {
 			if err := s.ensureBranch(ctx); err != nil {
 				return err
@@ -260,8 +262,11 @@ func (s *Syncer) Sync(ctx context.Context) Status {
 // the git lock.
 func (s *Syncer) locked(fn func(vault.Locked) error) error {
 	return s.o.Vault.Exclusive(func(l vault.Locked) error {
-		s.gmu.Lock()
-		defer s.gmu.Unlock()
+		unlock, err := s.lockGit()
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		return fn(l)
 	})
 }

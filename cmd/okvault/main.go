@@ -159,8 +159,8 @@ func serve(args []string) error {
 		go func() {
 			onReload := func(s *vault.Snapshot) {
 				srv.Refresh(s)
-				if *readOnly || v.Busy() {
-					return // a rebase is rewriting the tree; gitsync regenerates after it
+				if *readOnly || v.Busy() || (gs != nil && gs.InProgress()) {
+					return // git is rewriting the tree (here or in another process); indexes are regenerated after it
 				}
 				if gs != nil {
 					gs.Touched()

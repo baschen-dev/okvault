@@ -378,6 +378,13 @@ func (v *Vault) Write(req WriteRequest, now time.Time) (*WriteResult, error) {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	if v.Git != nil {
+		end, err := v.Git.Begin()
+		if err != nil {
+			return nil, err
+		}
+		defer end()
+	}
 	v.touched = map[string]bool{}
 	defer func() { v.touched = nil }()
 	res, err := v.write(rel, req, now)
