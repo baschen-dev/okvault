@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,6 +64,47 @@ func TestStdioSmoke(t *testing.T) {
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("watcher did not pick up the edit")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestWatcherRegeneratesIndex checks that a note created on disk (as in
+// Obsidian) shows up in its folder's generated index.md while serving.
+func TestWatcherRegeneratesIndex(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a binary")
+	}
+	bin := filepath.Join(t.TempDir(), "okvault")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "faq"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "faq", "a.md"), []byte("---\ntype: FAQ\ntitle: A?\n---\na\n"), 0o644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "serve", "--vault", root)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "smoke", Version: "0"}, nil).
+		Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+
+	_ = os.WriteFile(filepath.Join(root, "faq", "b.md"), []byte("---\ntype: FAQ\ntitle: Brand new?\ndescription: Added in Obsidian.\n---\nb\n"), 0o644)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		idx, _ := os.ReadFile(filepath.Join(root, "faq", "index.md"))
+		if strings.Contains(string(idx), "[Brand new?](./b.md) - Added in Obsidian.") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("faq/index.md not regenerated:\n%s", idx)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

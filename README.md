@@ -5,7 +5,7 @@ okvault is a knowledge vault for AI agents. You write notes in **Obsidian**. The
 - **Readable.** Every note is plain Markdown with YAML frontmatter. You edit it in Obsidian, review it on GitHub, and diff it in git.
 - **Fast.** okvault builds an in-memory BM25 index ([bleve](https://github.com/blevesearch/bleve)) at start-up. The index is rebuilt within about 300 ms of any file change. Lookups take under a millisecond.
 - **FAQ fast path.** `kb_ask` returns a stored answer only when the question matches an FAQ confidently. Otherwise it points the agent at the most relevant notes.
-- **Fully committable.** No database and no index files live in the vault. Obsidian settings are committed and per-device state is ignored.
+- **Fully committable.** No database and no index files live in the vault. Obsidian settings are committed and per-device state is ignored. While `serve` runs, generated `index.md` files are kept up to date as you edit in Obsidian; after editing with okvault stopped, run `okvault index` (or `just index`) before committing, since CI checks them.
 - **One static Go binary.** No Obsidian process, plugin or model download is needed.
 
 Background and design choices are in [docs/research.md](docs/research.md).
@@ -13,7 +13,7 @@ Background and design choices are in [docs/research.md](docs/research.md).
 ## Quick start
 
 ```sh
-go install github.com/baschen-dev/okvault/cmd/okvault@latest
+go install github.com/baschen-dev/okvault/cmd/okvault@latest   # private repo: set GOPRIVATE=github.com/baschen-dev/*, or run `just install` from a clone
 okvault ask --vault ./vault "how do I add an faq"
 okvault search --vault ./vault bm25 ranking
 ```

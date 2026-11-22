@@ -117,7 +117,19 @@ func serve(args []string) error {
 	defer stop()
 	if !*noWatch {
 		go func() {
-			if err := v.Watch(ctx, 300*time.Millisecond, srv.Refresh); err != nil {
+			onReload := func(s *vault.Snapshot) {
+				srv.Refresh(s)
+				if *readOnly {
+					return
+				}
+				// keep okvault-owned index.md files in step with notes edited in Obsidian
+				if written, err := v.RegenerateIndexes(); err != nil {
+					slog.Warn("index regeneration failed", "err", err)
+				} else if len(written) > 0 {
+					slog.Debug("indexes regenerated", "files", written)
+				}
+			}
+			if err := v.Watch(ctx, 300*time.Millisecond, onReload); err != nil {
 				slog.Warn("watcher stopped", "err", err)
 			}
 		}()
