@@ -1,0 +1,40 @@
+# Checks a vault repository on every pull request and push to main:
+# notes must parse as OKF and the generated index.md files must be current.
+# Copy to .github/workflows/okvault.yml in the vault's repository.
+# For a vault in a subfolder, set VAULT (e.g. vault).
+name: okvault
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  VAULT: .
+  # Pin okvault like the actions below: a release tag or a commit SHA.
+  OKVAULT_VERSION: 132bc4d4b01d3a936fed1240703a0eec8d3a1641
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: stable
+          cache: false
+      - name: Install okvault
+        run: go install "github.com/baschen-dev/okvault/cmd/okvault@${OKVAULT_VERSION}"
+      - name: Lint notes
+        # add --strict once every note has a type (untyped notes are warnings)
+        run: okvault lint --vault "$VAULT"
+      - name: Indexes are up to date
+        run: |
+          okvault index --vault "$VAULT"
+          if ! git diff --exit-code; then
+            echo "::error::index.md files are out of date: run okvault index and commit"
+            exit 1
+          fi
