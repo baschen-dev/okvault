@@ -1,0 +1,12 @@
+{
+  "types": {
+    "type": "text",
+    "title": "text",
+    "description": "text",
+    "tags": "tags",
+    "aliases": "aliases",
+    "status": "text",
+    "resource": "text",
+    "stale_after": "datetime"
+  }
+}

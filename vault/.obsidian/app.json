@@ -1,0 +1,12 @@
+{
+  "useMarkdownLinks": true,
+  "newLinkFormat": "relative",
+  "alwaysUpdateLinks": true,
+  "newFileLocation": "current",
+  "attachmentFolderPath": "_attachments",
+  "showFrontmatter": true,
+  "propertiesInDocument": "visible",
+  "userIgnoreFilters": [
+    "_templates/"
+  ]
+}

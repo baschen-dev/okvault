@@ -1,0 +1,10 @@
+/bin/
+/dist/
+*.exe
+
+# Obsidian: commit settings, not per-device state
+vault/.obsidian/workspace*.json
+vault/.obsidian/cache
+vault/.obsidian/plugins/*/data.json
+vault/.trash/
+.okvault-*.tmp
