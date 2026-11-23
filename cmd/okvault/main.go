@@ -10,10 +10,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,7 +35,9 @@ const usage = `okvault - OKF knowledge vault for AI agents (MCP)
 
 Usage:
   okvault serve  [--vault DIR] [--read-only] [--author NAME] [--no-watch] [--git MODE]
-                                                                          MCP server on stdio
+                 [--http] [--port N] [--host ADDR]
+                                                MCP server on stdio, or with --http / --port on
+                                                http://HOST:PORT/mcp (default 127.0.0.1:8765)
   okvault ask    [--vault DIR] QUESTION...                                  FAQ fast answer
   okvault search [--vault DIR] [--type T] [--tag T] [--limit N] QUERY...    ranked search
   okvault lint   [--vault DIR] [--strict]                                   OKF conformance check
@@ -130,7 +135,13 @@ func serve(args []string) error {
 	author := fs.String("author", envOr("OKVAULT_AUTHOR", "agent"), "recorded as generated.by on writes")
 	noWatch := fs.Bool("no-watch", false, "do not reload when files change")
 	gitMode := fs.String("git", "", "override git.mode from .okvault.yaml on this machine: off, commit, push or pr")
+	useHTTP := fs.Bool("http", false, "serve MCP over HTTP (Streamable HTTP at /mcp) instead of stdio")
+	port := fs.Int("port", 0, fmt.Sprintf("HTTP port; implies --http (default %d)", defaultPort))
+	host := fs.String("host", "127.0.0.1", "HTTP listen address; use 0.0.0.0 to accept other machines (no authentication)")
 	_ = fs.Parse(args)
+	if *port < 0 || *port > 65535 {
+		return fmt.Errorf("--port %d is out of range", *port)
+	}
 	v, ix, err := open(fs, *dir)
 	if err != nil {
 		return err
@@ -177,8 +188,44 @@ func serve(args []string) error {
 			}
 		}()
 	}
-	slog.Info("okvault serving", "vault", v.Root, "concepts", len(v.Snapshot().Concepts), "read_only", *readOnly)
+	if *useHTTP || *port != 0 {
+		if *port == 0 {
+			*port = defaultPort
+		}
+		return serveHTTP(ctx, srv.MCP, net.JoinHostPort(*host, strconv.Itoa(*port)), v.Root, *readOnly)
+	}
+	slog.Info("okvault serving", "transport", "stdio", "vault", v.Root, "concepts", len(v.Snapshot().Concepts), "read_only", *readOnly)
 	return srv.MCP.Run(ctx, &mcp.StdioTransport{})
+}
+
+// defaultPort is the --http port when --port is not given.
+const defaultPort = 8765
+
+// serveHTTP serves the MCP server over Streamable HTTP at /mcp on addr until
+// ctx is cancelled.
+func serveHTTP(ctx context.Context, s *mcp.Server, addr, root string, readOnly bool) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	return serveListener(ctx, s, ln, root, readOnly)
+}
+
+func serveListener(ctx context.Context, s *mcp.Server, ln net.Listener, root string, readOnly bool) error {
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s }, nil))
+	hs := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = hs.Shutdown(shut)
+	}()
+	slog.Info("okvault serving", "transport", "http", "url", "http://"+ln.Addr().String()+"/mcp", "vault", root, "read_only", readOnly)
+	if err := hs.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 // openGit returns the vault's git syncer, or nil when git is off and the
