@@ -18,6 +18,14 @@ An Obsidian plugin that shows the vault the way okvault's agents see it.
 
   The command *Mark this note as checked* does the same for the open note.
 
+- **Team settings** (*Settings → okvault*, below the plugin's own settings). This is a form for the vault's `.okvault.yaml`, which the whole team shares:
+  - it covers git mode, when your Obsidian edits are committed, background sync, the pull request branch, the review interval, folder owners and the ticket tracker;
+  - fields appear only when they apply to the chosen mode, and each field shows problems as you type;
+  - **Save** has okvault check the file (`okvault lint` on a copy) before writing it, so a typo never reaches your teammates;
+  - comments, key order and any keys the form does not show are kept;
+  - you can preview the resulting file before saving;
+  - if the file changed on disk since you opened the page, for example because a sync pulled a teammate's change, Save refuses and asks you to reload instead of overwriting it.
+
 Search and FAQ answers come from okvault itself, over MCP (`okvault serve --port`), so the plugin uses exactly the ranking and FAQ thresholds that agents use. The map is built from Obsidian's metadata cache, so it stays live as you edit and works without the server. Without the server, its review rings show only drafts and broken links.
 
 ## Install

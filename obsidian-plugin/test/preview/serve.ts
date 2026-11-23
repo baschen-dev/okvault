@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import esbuild from "esbuild";
 import { readVaultNotes } from "../vault-notes.ts";
+import { checkConfig } from "../../src/server.ts";
 
 const here = import.meta.dirname;
 const root = join(here, "..", "..");
@@ -17,10 +18,13 @@ const ok = spawn(cmd, [...args, "serve", "--vault", vault, "--port", String(okPo
 process.on("exit", () => ok.kill());
 process.on("SIGINT", () => process.exit());
 
-const js = (await esbuild.build({
-  entryPoints: [join(here, "app.ts")], bundle: true, format: "esm", write: false, target: "es2022",
+const build = async (entry: string) => (await esbuild.build({
+  entryPoints: [join(here, entry)], bundle: true, format: "esm", write: false, target: "es2022",
   alias: { obsidian: join(here, "obsidian-stub.ts") },
+  plugins: [{ name: "server-stub", setup(b) { b.onResolve({ filter: /^\.\/server$/ }, () => ({ path: join(here, "server-browser.ts") })); } }],
 })).outputFiles[0].text;
+const js = await build("app.ts");
+const settingsJs = await build("settings.ts");
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>okvault plugin preview</title>
 <style>
@@ -36,6 +40,11 @@ button{font:inherit;cursor:pointer} button.mod-cta{background:var(--interactive-
 </style><link rel="stylesheet" href="/styles.css"></head>
 <body class="${"$"}{THEME}"><div id="bundle"></div><div id="faq"></div><div id="team" style="overflow:auto;background:var(--background-secondary);border-left:1px solid var(--background-modifier-border)"></div><script type="module" src="/app.js"></script></body></html>`;
 
+const settingsHtml = html
+  .replace('<div id="bundle"></div><div id="faq"></div>', '<div id="settings" class="vertical-tab-content" style="grid-column:1/-1;max-width:760px;margin:0 auto;padding:16px;overflow:auto"></div>')
+  .replace("/app.js", "/settings.js")
+  .replace("</style>", ".setting-item{display:flex;gap:16px;align-items:center;padding:10px 0;border-top:1px solid var(--background-modifier-border)}.setting-item-info{flex:1}.setting-item-name{font-weight:500}.setting-item-description{color:var(--text-muted);font-size:13px}.setting-item-heading .setting-item-name{font-size:16px;font-weight:600}.setting-item-control{display:flex;gap:6px}input,select{font:inherit;padding:3px 6px}.preview-notice{position:fixed;top:10px;right:10px;background:#333;color:#fff;padding:8px 12px;border-radius:6px}</style>");
+
 createServer(async (req, res) => {
   const url = new URL(req.url!, "http://x");
   if (url.pathname === "/mcp") {
@@ -47,7 +56,13 @@ createServer(async (req, res) => {
     const sid = r.headers.get("mcp-session-id");
     if (sid) out["mcp-session-id"] = sid;
     res.writeHead(r.status, out).end(await r.text());
-  } else if (url.pathname === "/app.js") res.writeHead(200, { "content-type": "text/javascript" }).end(js);
+  } else if (url.pathname === "/check-config") {
+    const body = await new Promise<string>((r) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => r(b)); });
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(await checkConfig(bin ?? "okvault", body)));
+  } else if (url.pathname === "/okvault.yaml") res.writeHead(200).end(readFileSync(join(vault, ".okvault.yaml")));
+  else if (url.pathname === "/settings.js") res.writeHead(200, { "content-type": "text/javascript" }).end(settingsJs);
+  else if (url.pathname === "/settings") res.writeHead(200, { "content-type": "text/html" }).end(settingsHtml);
+  else if (url.pathname === "/app.js") res.writeHead(200, { "content-type": "text/javascript" }).end(js);
   else if (url.pathname === "/styles.css") res.writeHead(200, { "content-type": "text/css" }).end(readFileSync(join(root, "styles.css")));
   else if (url.pathname === "/notes.json") res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(readVaultNotes(vault)));
   else res.writeHead(200, { "content-type": "text/html" }).end(html.replace("${THEME}", url.searchParams.get("theme") === "dark" ? "theme-dark" : ""));

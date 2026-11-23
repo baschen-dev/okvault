@@ -47,3 +47,48 @@ export function debounce<T extends (...a: any[]) => void>(fn: T, ms: number) {
   return ((...a: any[]) => { clearTimeout(t); t = window.setTimeout(() => fn(...a), ms); }) as T;
 }
 (globalThis as any).createEl = (tag: string, o?: Attrs) => (document.createElement("div") as any).createEl(tag, o);
+
+export class TFolder {
+  constructor(public path: string) {}
+  isRoot() { return this.path === "/"; }
+}
+export class Notice {
+  constructor(msg: string) { console.log("Notice:", msg); const n = document.body.createDiv({ cls: "preview-notice", text: msg }); setTimeout(() => n.remove(), 4000); }
+  hide() {}
+}
+export class PluginSettingTab {}
+type Cb<T> = (c: T) => unknown;
+export class Setting {
+  settingEl: HTMLElement; infoEl: HTMLElement; nameEl: HTMLElement; descEl: HTMLElement; controlEl: HTMLElement;
+  constructor(el: HTMLElement) {
+    this.settingEl = el.createDiv({ cls: "setting-item" });
+    this.infoEl = this.settingEl.createDiv({ cls: "setting-item-info" });
+    this.nameEl = this.infoEl.createDiv({ cls: "setting-item-name" });
+    this.descEl = this.infoEl.createDiv({ cls: "setting-item-description" });
+    this.controlEl = this.settingEl.createDiv({ cls: "setting-item-control" });
+  }
+  setName(n: string) { this.nameEl.setText(n); return this; }
+  setDesc(d: string) { this.descEl.prepend(document.createTextNode(d)); return this; }
+  setHeading() { this.settingEl.addClass("setting-item-heading"); return this; }
+  setClass(c: string) { this.settingEl.addClass(c); return this; }
+  addText(cb: Cb<any>) {
+    const inputEl = this.controlEl.createEl("input", { type: "text" }) as HTMLInputElement;
+    const t: any = { inputEl, setPlaceholder: (p: string) => ((inputEl.placeholder = p), t), setValue: (v: string) => ((inputEl.value = v), t), onChange: (f: (v: string) => void) => (inputEl.addEventListener("input", () => f(inputEl.value)), t) };
+    cb(t); return this;
+  }
+  addDropdown(cb: Cb<any>) {
+    const sel = this.controlEl.createEl("select") as HTMLSelectElement;
+    const d: any = { addOption: (v: string, l: string) => (sel.createEl("option", { text: l, attr: { value: v } }), d), setValue: (v: string) => ((sel.value = v), d), onChange: (f: (v: string) => void) => (sel.addEventListener("change", () => f(sel.value)), d) };
+    cb(d); return this;
+  }
+  addButton(cb: Cb<any>) {
+    const b = this.controlEl.createEl("button") as HTMLButtonElement;
+    const o: any = { setButtonText: (t: string) => ((b.textContent = t), o), setCta: () => (b.addClass("mod-cta"), o), onClick: (f: () => void) => (b.addEventListener("click", f), o) };
+    cb(o); return this;
+  }
+  addExtraButton(cb: Cb<any>) {
+    const b = this.controlEl.createEl("button", { cls: "clickable-icon" }) as HTMLButtonElement;
+    const o: any = { setIcon: (i: string) => ((b.textContent = i === "trash" ? "🗑" : i), o), setTooltip: (t: string) => (b.setAttr("title", t), o), onClick: (f: () => void) => (b.addEventListener("click", f), o) };
+    cb(o); return this;
+  }
+}
