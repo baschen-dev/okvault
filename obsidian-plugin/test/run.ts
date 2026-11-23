@@ -9,7 +9,8 @@ import { cpSync, mkdtempSync, readFileSync, appendFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OkvaultClient, parseMessages, type Post } from "../src/client.ts";
-import { OkvaultProcess, checkConfig, syncNow, verifyNote } from "../src/server.ts";
+import { OkvaultProcess, checkConfig, lintVault, syncNow, verifyNote } from "../src/server.ts";
+import { folderFor, kebab, normalizeKey, ticketKeyAt, ticketsOf, trustOf } from "../src/noteFacts.ts";
 import { applyTeamConfig, checkTeamConfig, emptyConfig, readTeamConfig, type TeamConfig } from "../src/teamConfig.ts";
 import { buildBundle } from "../src/bundle.ts";
 import { readVaultNotes } from "./vault-notes.ts";
@@ -46,6 +47,33 @@ check("links found", b.edges.length > 0, `${b.edges.length} edges`);
 check("review reason carried", b.nodes.get("faq/how-do-i-add-an-faq.md")!.reasons.has("unverified"));
 const angles = [...b.nodes.values()].map((n) => n.angle);
 check("angles in (0, 2π) and distinct", angles.every((a) => a > 0 && a < 2 * Math.PI) && new Set(angles).size === angles.length);
+
+// ---- note facts (inspector, ticket workspace) ----
+{
+  const now = new Date("2026-11-24T12:00:00Z");
+  const t1 = trustOf({ generated: { by: "claude-code", at: "2026-11-20T10:00:00Z" } }, now);
+  check("agent note never checked is unverified", t1.unverified && !t1.lastVerified && t1.generated?.by === "claude-code");
+  const t2 = trustOf(
+    {
+      generated: { by: "claude-code", at: "2026-11-20T10:00:00Z" },
+      verified: [{ by: "bob", at: "2026-11-21T09:00:00Z" }, { by: "alice", at: "2026-11-01T09:00:00Z" }],
+      stale_after: "2027-05-20T09:00:00Z",
+    },
+    now,
+  );
+  check("a later check clears unverified; last check is the newest", !t2.unverified && t2.lastVerified?.by === "bob" && t2.verified.length === 2);
+  check("days until stale", t2.daysLeft === 177 && !t2.stale, String(t2.daysLeft));
+  const t3 = trustOf({ generated: { by: "a", at: "2026-11-22T00:00:00Z" }, verified: { by: "bob", at: "2026-11-21T00:00:00Z" }, stale_after: "2026-10-01" }, now);
+  check("agent edit after the check, past stale_after", t3.unverified && t3.stale && t3.daysLeft! < 0);
+  check("unparseable stale_after is reported", trustOf({ stale_after: "soon" }, now).staleAfterInvalid);
+  check("ticket key under the cursor", ticketKeyAt("see PROJ-12 and OPS-3", 6) === "PROJ-12" && ticketKeyAt("see PROJ-12 and OPS-3", 19, ["OPS"]) === "OPS-3");
+  check("only configured projects count", ticketKeyAt("UTF-8 text", 2, ["PROJ"]) === null);
+  check("normalizes typed keys", normalizeKey(" proj-7 ") === "PROJ-7" && normalizeKey("proj 7") === null && normalizeKey("PROJ-0") === null);
+  check("tickets from frontmatter", ticketsOf({ tickets: ["proj-1", "nope", "OPS-2"] }).join() === "PROJ-1,OPS-2" && ticketsOf({ tickets: "A-1, B-2" }).length === 2);
+  check("kebab-case names", kebab("Why we pinned the Jira API to v2?") === "why-we-pinned-the-jira-api-to-v2" && kebab("Café Ünïcode") === "cafe-unicode");
+  const sample = [{ path: "faq/a.md", type: "FAQ" }, { path: "faq/b.md", type: "FAQ" }, { path: "decisions/x.md", type: "Decision" }, { path: "_templates/Decision.md", type: "Decision" }, { path: "_templates/Playbook.md", type: "Playbook" }];
+  check("folder suggestion follows where a type lives", folderFor("FAQ", sample) === "faq" && folderFor("decision", sample) === "decisions" && folderFor("Playbook", sample) === "");
+}
 
 // ---- live server, started the way the plugin starts it ----
 const TMP = mkdtempSync(join(tmpdir(), "okvault-plugin-"));
@@ -90,6 +118,29 @@ try {
     const again = await c.ask("how do I add an faq");
     check("re-initializes after a lost session", again.confident);
     check("read-only server reports no git sync", r.git === undefined);
+
+    const d = await c.get("faq/how-do-i-add-an-faq.md");
+    check("kb_get returns links and revision", d.type === "FAQ" && !!d.revision && (d.links ?? []).includes("conventions/note-format.md"), JSON.stringify(d.links));
+    const back = await c.get("conventions/note-format.md");
+    check("kb_get returns backlinks", (back.backlinks ?? []).includes("faq/how-do-i-add-an-faq.md"), JSON.stringify(back.backlinks));
+    const tk = await c.ticket("proj-123");
+    check("kb_ticket without a tracker still answers", tk.key === "PROJ-123" && !tk.ticket && !!tk.hint, JSON.stringify({ note: tk.tracker_note, hint: tk.hint }).slice(0, 160));
+    let bad = "";
+    try {
+      await c.ticket("not a key");
+    } catch (e) {
+      bad = (e as Error).message;
+    }
+    check("kb_ticket rejects a non-key", bad.includes("not a ticket key"), bad);
+
+    const clean = await lintVault(BIN, VAULT);
+    check("lint: the repo vault is clean", !clean.error && clean.findings.size === 0, clean.error ?? [...clean.findings.keys()].join());
+    const lv = join(TMP, "lintvault");
+    cpSync(join(VAULT, "faq"), join(lv, "faq"), { recursive: true });
+    writeFileSync(join(lv, "faq", "Bad Name.md"), "---\ntitle: Untyped?\n---\nsee [x](./missing.md)\n");
+    const dirty = await lintVault(BIN, lv);
+    const f = dirty.findings.get("faq/Bad Name.md") ?? [];
+    check("lint: findings grouped by note path", f.some((x) => x.message.includes("no `type`")) && f.some((x) => x.message.startsWith("broken link")) && f.some((x) => x.message.startsWith("file name")), JSON.stringify(f.map((x) => x.message)));
   }
 } finally {
   proc.stop();

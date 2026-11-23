@@ -18,6 +18,17 @@ An Obsidian plugin that shows the vault the way okvault's agents see it.
 
   The command *Mark this note as checked* does the same for the open note.
 
+- **Note inspector** (right sidebar; follows the open note). It answers "can I trust this note, and who looks after it?":
+  - **Trust:** written by an agent or a person, who checked it and when, whether an agent changed it since, and the days until its review date (`stale_after`). It has a **Mark as checked** button.
+  - **Owners and tickets:** owners, including folder defaults from `.okvault.yaml`. Ticket chips open the ticket workspace or the tracker.
+  - **Format:** this note's `okvault lint` findings, with quick fixes. You can set a missing `type` or description, add a title, or rename the file to kebab-case; Obsidian updates the links to it.
+  - **Links:** backlinks, outgoing links and broken links, as okvault resolves them.
+  - **Similar notes:** ranked by the same search agents use, so near-duplicates get merged instead of multiplied.
+- **Ticket workspace** (right sidebar). Type a key such as `PROJ-123`, run *Open the ticket under the cursor*, or click a ticket key in reading view. Ticket keys become links only for the projects listed in `tracker.projects`.
+  - It shows the ticket from Jira (summary, status, assignee, description, recent comments) next to the notes linked to it, mentioning it, or likely relevant (`kb_ticket`).
+  - **Record what we learned** creates a note from a `_templates/` template, with `tickets: [PROJ-123]` filled in, in the folder where that type of note usually lives.
+  - With no ticket open, it lists every ticket the vault documents.
+  - Without Jira credentials it still shows the vault's own notes.
 - **Team settings** (*Settings → okvault*, below the plugin's own settings). This is a form for the vault's `.okvault.yaml`, which the whole team shares:
   - it covers git mode, when your Obsidian edits are committed, background sync, the pull request branch, the review interval, folder owners and the ticket tracker;
   - fields appear only when they apply to the chosen mode, and each field shows problems as you type;

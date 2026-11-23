@@ -1,9 +1,12 @@
-import { FileSystemAdapter, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, parseYaml, requestUrl } from "obsidian";
+import { FileSystemAdapter, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, debounce, parseYaml, requestUrl } from "obsidian";
 import { GitStatus, OkvaultClient, Post } from "./client";
 import { NoteInput } from "./bundle";
 import { BUNDLE_VIEW, BundleView } from "./bundleView";
 import { FAQ_VIEW, FaqView } from "./faqView";
-import { OkvaultProcess, syncNow, verifyNote } from "./server";
+import { Finding, OkvaultProcess, lintVault, syncNow, verifyNote } from "./server";
+import { INSPECTOR_VIEW, InspectorView } from "./inspectorView";
+import { TICKET_VIEW, TicketView } from "./ticketView";
+import { TICKET_KEY, isProjectKey, normalizeKey, ticketKeyAt } from "./noteFacts";
 import { TEAM_VIEW, TeamView } from "./teamView";
 import { DEFAULT_SETTINGS, OkvaultSettingTab, OkvaultSettings } from "./settings";
 
@@ -51,6 +54,16 @@ export default class OkvaultPlugin extends Plugin {
   teamGit: TeamGit = { mode: "off" };
   syncing = false;
   private lastProblem = "";
+  /** Ticket project keys from .okvault.yaml (tracker.projects); empty: keys are not linked in notes. */
+  ticketProjects: string[] = [];
+  /** okvault lint results for the whole vault, by note path. */
+  lint: { findings: Map<string, Finding[]>; error: string; at: number; running: boolean } = {
+    findings: new Map(),
+    error: "",
+    at: 0,
+    running: false,
+  };
+  private lintAgain = false;
 
   override async onload(): Promise<void> {
     await this.loadSettings();
@@ -59,10 +72,14 @@ export default class OkvaultPlugin extends Plugin {
     this.registerView(FAQ_VIEW, (leaf) => new FaqView(leaf, this));
     this.registerView(BUNDLE_VIEW, (leaf) => new BundleView(leaf, this));
     this.registerView(TEAM_VIEW, (leaf) => new TeamView(leaf, this));
+    this.registerView(INSPECTOR_VIEW, (leaf) => new InspectorView(leaf, this));
+    this.registerView(TICKET_VIEW, (leaf) => new TicketView(leaf, this));
 
     this.addRibbonIcon("message-circle-question", "okvault: ask the FAQ", () => this.openFaq());
     this.addRibbonIcon("orbit", "okvault: bundle map", () => this.openBundle());
     this.addRibbonIcon("git-pull-request", "okvault: versioning and review", () => this.openTeam());
+    this.addRibbonIcon("shield-check", "okvault: note inspector", () => this.openInspector());
+    this.addRibbonIcon("ticket", "okvault: ticket workspace", () => this.openTicket());
 
     this.addCommand({ id: "ask", name: "Ask the FAQ", callback: () => this.openFaq() });
     this.addCommand({
@@ -75,6 +92,43 @@ export default class OkvaultPlugin extends Plugin {
     });
     this.addCommand({ id: "bundle", name: "Open the bundle map", callback: () => this.openBundle() });
     this.addCommand({ id: "team", name: "Open versioning and review", callback: () => this.openTeam() });
+    this.addCommand({ id: "inspector", name: "Open the note inspector", callback: () => this.openInspector() });
+    this.addCommand({ id: "tickets", name: "Open the ticket workspace", callback: () => this.openTicket() });
+    this.addCommand({
+      id: "ticket-at-cursor",
+      name: "Open the ticket under the cursor",
+      editorCheckCallback: (checking, editor) => {
+        const cur = editor.getCursor();
+        const sel = editor.getSelection().trim();
+        const key = (sel && normalizeKey(sel)) || ticketKeyAt(editor.getLine(cur.line), cur.ch, this.ticketProjects);
+        if (!key) return false;
+        if (!checking) void this.openTicket(key);
+        return true;
+      },
+    });
+
+    // Ticket keys of the team's projects become links to the ticket workspace in reading view.
+    this.registerMarkdownPostProcessor((el) => {
+      if (!this.ticketProjects.length) return;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const hits: Text[] = [];
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const parent = n.parentElement;
+        if (parent?.closest("a, code, pre")) continue;
+        TICKET_KEY.lastIndex = 0;
+        if (TICKET_KEY.test(n.textContent ?? "")) hits.push(n as Text);
+      }
+      for (const t of hits) this.linkTickets(t);
+    });
+
+    const lintSoon = debounce(() => this.requestLint(), 3000, true);
+    for (const ev of ["modify", "create", "delete", "rename"] as const) {
+      this.registerEvent(
+        (this.app.vault.on as (e: string, cb: () => void) => ReturnType<typeof this.app.vault.on>)(ev, () => {
+          if (this.app.workspace.getLeavesOfType(INSPECTOR_VIEW).length) lintSoon();
+        }),
+      );
+    }
     this.addCommand({ id: "sync", name: "Sync now (commit edits, rebase, push, update the pull request)", callback: () => this.sync() });
     this.addCommand({
       id: "verify",
@@ -248,6 +302,8 @@ export default class OkvaultPlugin extends Plugin {
         commitEdits: g.commit_edits ? String(g.commit_edits) : undefined,
         pullInterval: g.pull_interval !== undefined ? String(g.pull_interval) : undefined,
       };
+      const t = ((y as { tracker?: { projects?: unknown } }).tracker?.projects ?? []) as unknown;
+      this.ticketProjects = (Array.isArray(t) ? t : String(t).split(/[,\s]+/)).map((x) => String(x).trim().toUpperCase()).filter(Boolean);
     } catch (e) {
       this.teamGit = { mode: "off", error: `.okvault.yaml: ${(e as Error).message}` };
     }
@@ -441,6 +497,58 @@ export default class OkvaultPlugin extends Plugin {
     else view.focus();
   }
 
+  async openInspector(): Promise<void> {
+    await this.revealView(INSPECTOR_VIEW, "right");
+  }
+
+  /** Opens the ticket workspace, on a ticket when given. */
+  async openTicket(key?: string): Promise<void> {
+    const leaf = await this.revealView(TICKET_VIEW, "right");
+    const v = leaf.view as TicketView;
+    if (key) await v.show(key);
+    else v.focus();
+  }
+
+  /** Wraps ticket keys in a text node with links to the ticket workspace. */
+  private linkTickets(t: Text): void {
+    const text = t.textContent ?? "";
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    for (const m of text.matchAll(TICKET_KEY)) {
+      const i = m.index ?? 0;
+      if (!isProjectKey(m[0], this.ticketProjects)) continue;
+      frag.appendText(text.slice(last, i));
+      const a = frag.createEl("a", { cls: "okvault-ticket-key", text: m[0], attr: { title: `Open ${m[0]} in the ticket workspace` } });
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        void this.openTicket(m[0]);
+      });
+      last = i + m[0].length;
+    }
+    if (!last) return;
+    frag.appendText(text.slice(last));
+    t.replaceWith(frag);
+  }
+
+  /** Runs okvault lint for the whole vault (one at a time), then refreshes the inspector. */
+  requestLint(): void {
+    if (this.lint.running) {
+      this.lintAgain = true;
+      return;
+    }
+    const dir = this.vaultDir();
+    if (!dir) return;
+    this.lint.running = true;
+    void lintVault(this.settings.binaryPath, dir).then((r) => {
+      this.lint = { findings: r.findings, error: r.error ?? "", at: Date.now(), running: false };
+      for (const l of this.app.workspace.getLeavesOfType(INSPECTOR_VIEW)) (l.view as InspectorView).refresh();
+      if (this.lintAgain) {
+        this.lintAgain = false;
+        this.requestLint();
+      }
+    });
+  }
+
   async openTeam(): Promise<void> {
     await this.revealView(TEAM_VIEW, "right");
   }
@@ -465,6 +573,7 @@ export default class OkvaultPlugin extends Plugin {
   }
 
   refreshViews(): void {
+    for (const l of this.app.workspace.getLeavesOfType(INSPECTOR_VIEW)) (l.view as InspectorView).refresh();
     for (const l of this.app.workspace.getLeavesOfType(TEAM_VIEW)) void (l.view as TeamView).reload();
     for (const l of this.app.workspace.getLeavesOfType(FAQ_VIEW)) (l.view as FaqView).refresh();
     for (const l of this.app.workspace.getLeavesOfType(BUNDLE_VIEW)) void (l.view as BundleView).reload();

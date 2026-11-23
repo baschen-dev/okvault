@@ -264,3 +264,61 @@
   border-radius: var(--radius-s);
 }
 .okvault-team-buttons button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---------- note inspector ---------- */
+
+.okvault-inspector, .okvault-tickets { padding: 8px 12px; }
+.okvault-insp-head { margin-bottom: 8px; }
+.okvault-insp-title { font-weight: var(--font-semibold); font-size: var(--font-ui-medium); }
+.okvault-insp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.okvault-status-chip-draft { border-style: dashed; }
+.okvault-status-chip-deprecated { text-decoration: line-through; }
+.okvault-insp-row { display: flex; align-items: flex-start; gap: 6px; font-size: var(--font-ui-small); margin: 3px 0; }
+.okvault-insp-icon { display: inline-flex; color: var(--text-muted); flex: none; }
+.okvault-insp-icon svg { width: 14px; height: 14px; }
+.okvault-t-serious { color: var(--text-normal); }
+.okvault-t-serious .okvault-insp-icon { color: #ec835a; }
+.okvault-t-warning .okvault-insp-icon { color: #fab219; }
+.okvault-card > button { margin-top: 6px; }
+.okvault-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.okvault-chip-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-ui-smaller);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+.okvault-chip-link a { color: var(--text-normal); text-decoration: none; }
+.okvault-ext { display: inline-flex; color: var(--text-muted); }
+.okvault-ext svg { width: 12px; height: 12px; }
+.okvault-finding { font-size: var(--font-ui-small); padding: 4px 6px; margin: 4px 0; border-left: 3px solid var(--okv-muted, #898781); border-radius: var(--radius-s); background: var(--background-secondary); }
+.okvault-finding-error { border-left-color: #d03b3b; }
+.okvault-finding-warning { border-left-color: #fab219; }
+.okvault-finding input[type="text"] { width: 100%; margin: 4px 0; }
+.okvault-finding select { margin: 4px 6px 0 0; }
+.okvault-fix { margin-top: 4px; font-size: var(--font-ui-smaller); }
+.okvault-insp-links summary { cursor: pointer; font-size: var(--font-ui-small); color: var(--text-muted); margin: 2px 0; }
+.okvault-insp-link { font-size: var(--font-ui-smaller); padding-left: 12px; word-break: break-all; }
+.okvault-insp-link a { cursor: pointer; }
+.okvault-insp-links.is-broken summary { color: var(--text-error); }
+.okvault-insp-links.is-broken a { color: var(--text-error); cursor: default; }
+
+/* ---------- ticket workspace ---------- */
+
+.okvault-back { display: inline-block; margin: 4px 0 8px; font-size: var(--font-ui-small); cursor: pointer; }
+.okvault-ticket-card .okvault-card-title a { text-decoration: none; }
+.okvault-ticket-summary { font-weight: var(--font-medium); margin: 2px 0 4px; }
+.okvault-ticket-status { font-size: var(--font-ui-smaller); border-radius: 999px; padding: 0 8px; border: 1px solid var(--background-modifier-border); }
+.okvault-cat-done { border-color: #0ca30c; }
+.okvault-cat-in-progress { border-color: #2a78d6; }
+.okvault-ticket-text { white-space: pre-wrap; font-size: var(--font-ui-small); margin: 4px 0; }
+.okvault-ticket-comment { border-top: 1px solid var(--background-modifier-border); padding-top: 4px; margin-top: 4px; }
+.okvault-ticket-card details summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-ui-small); margin-top: 4px; }
+.okvault-record { display: grid; grid-template-columns: auto 1fr; gap: 6px; margin-top: 6px; }
+.okvault-record input[type="text"] { width: 100%; }
+.okvault-record input[placeholder^="Title"] { grid-column: 1 / -1; order: -1; }
+.okvault-record button { grid-column: 1 / -1; justify-self: end; }
+.okvault-ticket-key { cursor: pointer; text-decoration: underline dotted; }

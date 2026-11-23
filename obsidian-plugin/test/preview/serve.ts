@@ -6,7 +6,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import esbuild from "esbuild";
 import { readVaultNotes } from "../vault-notes.ts";
-import { checkConfig } from "../../src/server.ts";
+import { checkConfig, lintVault } from "../../src/server.ts";
+import { parse as parseYaml } from "yaml";
 
 const here = import.meta.dirname;
 const root = join(here, "..", "..");
@@ -25,6 +26,7 @@ const build = async (entry: string) => (await esbuild.build({
 })).outputFiles[0].text;
 const js = await build("app.ts");
 const settingsJs = await build("settings.ts");
+const panelsJs = await build("panels.ts");
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>okvault plugin preview</title>
 <style>
@@ -39,6 +41,11 @@ body.theme-dark{--background-primary:#1e1e1e;--background-secondary:#262626;--ba
 button{font:inherit;cursor:pointer} button.mod-cta{background:var(--interactive-accent);color:#fff;border:none;border-radius:4px;padding:2px 10px} .clickable-icon{background:none;border:none;color:var(--text-muted)}
 </style><link rel="stylesheet" href="/styles.css"></head>
 <body class="${"$"}{THEME}"><div id="bundle"></div><div id="faq"></div><div id="team" style="overflow:auto;background:var(--background-secondary);border-left:1px solid var(--background-modifier-border)"></div><script type="module" src="/app.js"></script></body></html>`;
+
+function frontmatter(file: string): Record<string, unknown> {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(file, "utf8"));
+  return m ? (parseYaml(m[1]) ?? {}) : {};
+}
 
 const settingsHtml = html
   .replace('<div id="bundle"></div><div id="faq"></div>', '<div id="settings" class="vertical-tab-content" style="grid-column:1/-1;max-width:760px;margin:0 auto;padding:16px;overflow:auto"></div>')
@@ -60,10 +67,15 @@ createServer(async (req, res) => {
     const body = await new Promise<string>((r) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => r(b)); });
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(await checkConfig(bin ?? "okvault", body)));
   } else if (url.pathname === "/okvault.yaml") res.writeHead(200).end(readFileSync(join(vault, ".okvault.yaml")));
+  else if (url.pathname === "/lint") {
+    const r = await lintVault(bin ?? "okvault", vault);
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ findings: Object.fromEntries(r.findings), error: r.error }));
+  } else if (url.pathname === "/panels.js") res.writeHead(200, { "content-type": "text/javascript" }).end(panelsJs);
+  else if (url.pathname === "/panels") res.writeHead(200, { "content-type": "text/html" }).end(html.replace("/app.js", "/panels.js").replace("${THEME}", ""));
   else if (url.pathname === "/settings.js") res.writeHead(200, { "content-type": "text/javascript" }).end(settingsJs);
   else if (url.pathname === "/settings") res.writeHead(200, { "content-type": "text/html" }).end(settingsHtml);
   else if (url.pathname === "/app.js") res.writeHead(200, { "content-type": "text/javascript" }).end(js);
   else if (url.pathname === "/styles.css") res.writeHead(200, { "content-type": "text/css" }).end(readFileSync(join(root, "styles.css")));
-  else if (url.pathname === "/notes.json") res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(readVaultNotes(vault)));
+  else if (url.pathname === "/notes.json") res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(readVaultNotes(vault).map((n) => ({ ...n, fm: frontmatter(join(vault, n.path)) }))));
   else res.writeHead(200, { "content-type": "text/html" }).end(html.replace("${THEME}", url.searchParams.get("theme") === "dark" ? "theme-dark" : ""));
 }).listen(8790, "127.0.0.1", () => console.log("preview on http://127.0.0.1:8790/  (?theme=dark, ?demo=1 adds review reasons)"));
