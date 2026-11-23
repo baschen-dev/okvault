@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type OkvaultPlugin from "./main";
+import { TeamSettingsSection } from "./teamSettings";
 
 export interface OkvaultSettings {
   /** okvault's MCP endpoint, as printed by `okvault serve --port N`. */
@@ -25,17 +26,20 @@ export const DEFAULT_SETTINGS: OkvaultSettings = {
 };
 
 export class OkvaultSettingTab extends PluginSettingTab {
+  private team: TeamSettingsSection;
   constructor(
     app: App,
     private plugin: OkvaultPlugin,
   ) {
     super(app, plugin);
+    this.team = new TeamSettingsSection(plugin);
   }
 
   override display(): void {
     const { containerEl } = this;
     containerEl.empty();
     const s = this.plugin.settings;
+    new Setting(containerEl).setName("This plugin, on this machine").setHeading();
 
     new Setting(containerEl)
       .setName("Server URL")
@@ -115,5 +119,7 @@ export class OkvaultSettingTab extends PluginSettingTab {
           this.display();
         }),
       );
+
+    void this.team.display(containerEl.createDiv({ cls: "okvault-team-settings" }));
   }
 }

@@ -226,3 +226,41 @@
 .okvault-review .okvault-hit-title:hover { color: var(--text-accent); }
 .okvault-verify { margin-top: 4px; font-size: var(--font-ui-smaller); }
 .okvault-statusbar.has-problem { color: var(--text-error); }
+
+/* ---------- team settings (.okvault.yaml) ---------- */
+
+.okvault-team-settings { margin-top: 24px; }
+.okvault-team-intro { margin-bottom: 8px; }
+.okvault-field-error { color: var(--text-error); font-size: var(--font-ui-smaller); }
+.okvault-field-error:empty { display: none; }
+.okvault-owner-row .setting-item-control { flex-wrap: nowrap; }
+.okvault-owner-row .setting-item-control input[type="text"] { min-width: 0; flex: 1; }
+.okvault-owner-row .setting-item-info { display: none; }
+.okvault-owner-row:has(.okvault-field-error:not(:empty)) .setting-item-info { display: block; }
+.okvault-team-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  background: var(--background-primary);
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 12px;
+}
+.okvault-team-buttons { display: flex; gap: 8px; }
+.okvault-team-status { font-size: var(--font-ui-small); }
+.okvault-status-ok { color: var(--text-muted); }
+.okvault-status-warn { color: var(--text-normal); }
+.okvault-status-err { color: var(--text-error); }
+.okvault-preview summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-ui-small); margin: 6px 0; }
+.okvault-preview pre {
+  font-size: var(--font-ui-smaller);
+  max-height: 320px;
+  overflow: auto;
+  background: var(--background-secondary);
+  padding: 8px;
+  border-radius: var(--radius-s);
+}
+.okvault-team-buttons button:disabled { opacity: 0.5; cursor: not-allowed; }

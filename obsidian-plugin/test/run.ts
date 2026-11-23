@@ -9,7 +9,8 @@ import { cpSync, mkdtempSync, readFileSync, appendFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OkvaultClient, parseMessages, type Post } from "../src/client.ts";
-import { OkvaultProcess, syncNow, verifyNote } from "../src/server.ts";
+import { OkvaultProcess, checkConfig, syncNow, verifyNote } from "../src/server.ts";
+import { applyTeamConfig, checkTeamConfig, emptyConfig, readTeamConfig, type TeamConfig } from "../src/teamConfig.ts";
 import { buildBundle } from "../src/bundle.ts";
 import { readVaultNotes } from "./vault-notes.ts";
 
@@ -92,6 +93,60 @@ try {
   }
 } finally {
   proc.stop();
+}
+
+// ---- team settings editor (.okvault.yaml) ----
+{
+  const src = readFileSync(join(VAULT, ".okvault.yaml"), "utf8");
+  const { config, error } = readTeamConfig(src);
+  check("reads the vault's .okvault.yaml", !error && config.git.mode === "off", error);
+  check("no change leaves the file byte for byte", applyTeamConfig(src, config) === src);
+  config.git.mode = "pr";
+  config.git.commit_edits = "10m";
+  config.owners.push({ folder: "faq/", owners: ["team-docs"] });
+  const edited = applyTeamConfig(src, config);
+  check("edit keeps every comment", src.split("\n").filter((l) => l.startsWith("#")).every((l) => edited.includes(l)));
+  check("edit writes the settings", /git:\n  mode: pr\n  commit_edits: 10m/.test(edited) && edited.includes("faq: [team-docs]"), edited.slice(-80));
+  const back = readTeamConfig(edited).config;
+  back.git.mode = "off";
+  back.git.commit_edits = "";
+  back.owners = [];
+  check("removing them restores the original file", applyTeamConfig(edited, back) === src);
+
+  const user = "# ours\ngit:\n  mode: push # policy\n  base: main\nowners:\n  ops: [team-ops] # on call\n  .: [docs]\n";
+  const u = readTeamConfig(user).config;
+  u.owners[1].owners = ["docs", "alice"];
+  const out = applyTeamConfig(user, u);
+  check("untouched keys and their comments stay as written", out.includes("mode: push # policy") && out.includes("ops: [team-ops] # on call") && out.includes(".: [docs, alice]"), out);
+}
+
+// Instant checks agree with okvault itself on what it accepts.
+{
+  const cases: [string, (c: TeamConfig) => void][] = [
+    ["valid pr policy", (c) => Object.assign(c.git, { mode: "pr", base: "main", commit_edits: "10m", pull_interval: "5m" })],
+    ["bad git mode name", (c) => Object.assign(c.git, { mode: "push", base: "bad..name" })],
+    ["remote URL", (c) => Object.assign(c.git, { mode: "push", remote: "git@github.com/x" })],
+    ["year interval", (c) => (c.review_interval = "1y")],
+    ["zero pull interval", (c) => Object.assign(c.git, { mode: "push", pull_interval: "0" })],
+    ["weeks interval", (c) => (c.review_interval = "26w")],
+    ["jira without url", (c) => (c.tracker.kind = "jira")],
+    ["jira cloud", (c) => Object.assign(c.tracker, { kind: "jira", url: "https://acme.atlassian.net", projects: ["PROJ", "ops"] })],
+    ["bad project key", (c) => Object.assign(c.tracker, { kind: "none", url: "https://x.example", projects: ["1BAD"] })],
+    ["credentials in url", (c) => Object.assign(c.tracker, { kind: "jira", url: "https://me:pw@acme.atlassian.net" })],
+  ];
+  let agree = 0;
+  const disagreements: string[] = [];
+  for (const [name, edit] of cases) {
+    const c = emptyConfig();
+    edit(c);
+    const local = checkTeamConfig(c).size === 0;
+    const remote = (await checkConfig(BIN, applyTeamConfig("", c))).errors;
+    if (local === (remote.length === 0)) agree++;
+    else disagreements.push(`${name}: plugin ${local ? "accepts" : "rejects"}, okvault ${remote.length ? "rejects: " + remote[0] : "accepts"}`);
+  }
+  check("instant checks agree with okvault", agree === cases.length, disagreements.join(" | "));
+  const unknown = await checkConfig(BIN, "git:\n  mode: push\ntoken: abc\n");
+  check("okvault check reports unknown keys", unknown.errors.some((e) => e.includes("token")), unknown.errors.join("; "));
 }
 
 // ---- versioning: a scratch repository with a bare remote, git.mode push ----

@@ -1,6 +1,9 @@
 // Starts and stops a local `okvault serve` for the open vault, and runs okvault
 // commands (sync, verify) in it. Desktop only. No Obsidian import, so tests run it under Node.
 import { spawn, execFile, type ChildProcess } from "child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { GitStatus } from "./client.ts";
 
 export interface SpawnOptions {
@@ -103,4 +106,31 @@ export async function verifyNote(binary: string, vaultDir: string, path: string,
     .filter((l) => l.trim() && !l.startsWith("time="))
     .join("\n");
   return { ok: r.code === 0, message: out || (r.code === 0 ? `verified ${path}` : `okvault verify exited ${r.code}`) };
+}
+
+/**
+ * Has okvault itself check a draft .okvault.yaml: lint an empty vault holding
+ * only that file, so the errors are okvault's own (unknown keys, bad intervals...).
+ * Returns the problems; empty means okvault accepts it.
+ */
+export async function checkConfig(binary: string, yamlText: string): Promise<{ errors: string[]; unavailable?: string }> {
+  const dir = mkdtempSync(join(tmpdir(), "okvault-config-"));
+  try {
+    writeFileSync(join(dir, ".okvault.yaml"), yamlText);
+    const r = await runOkvault(binary, ["lint", "--vault", dir], dir, 20_000);
+    // "error   .okvault.yaml: msg", possibly followed by indented detail lines.
+    const errors: string[] = [];
+    for (const l of r.stdout.split(/\r?\n/)) {
+      if (/^error\s/.test(l)) errors.push(l.replace(/^error\s+/, "").replace(/^\.okvault\.yaml:\s*/, ""));
+      else if (/^\s+\S/.test(l) && errors.length) errors[errors.length - 1] += " " + l.trim();
+    }
+    for (let i = 0; i < errors.length; i++) {
+      // yaml.v3's "field token not found in type config.Config" means an unknown key.
+      errors[i] = errors[i].replace(/yaml: unmarshal errors: line (\d+): field (\S+) not found in type \S+/, "line $1: unknown key \"$2\"");
+    }
+    if (r.code !== 0 && !errors.length) return { errors: [], unavailable: r.stderr.split(/\r?\n/).pop() || `okvault lint exited ${r.code}` };
+    return { errors };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
