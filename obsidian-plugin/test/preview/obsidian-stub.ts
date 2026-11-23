@@ -19,6 +19,7 @@ P.addClass = function (c: string) { this.classList.add(c); };
 P.toggleClass = function (c: string, on: boolean) { this.classList.toggle(c, on); };
 P.setAttr = function (k: string, v: string) { this.setAttribute(k, v); };
 P.hide = function () { this.style.display = "none"; };
+P.appendText = function (t: string) { this.append(document.createTextNode(t)); };
 P.show = function () { this.style.display = ""; };
 (globalThis as any).createDiv = (o?: Attrs) => document.createElement("div").createDiv(o);
 
@@ -92,3 +93,15 @@ export class Setting {
     cb(o); return this;
   }
 }
+
+export class TFile {
+  basename: string;
+  extension = "md";
+  parent: { path: string; isRoot(): boolean } | null;
+  constructor(public path: string) {
+    this.basename = path.split("/").pop()!.replace(/\.md$/, "");
+    const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    this.parent = { path: dir || "/", isRoot: () => !dir };
+  }
+}
+export function normalizePath(p: string) { return p.replace(/\\/g, "/").replace(/\/+/g, "/"); }

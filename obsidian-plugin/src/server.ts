@@ -134,3 +134,31 @@ export async function checkConfig(binary: string, yamlText: string): Promise<{ e
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+export interface Finding {
+  severity: "error" | "warning";
+  path: string;
+  message: string;
+}
+
+/** `okvault lint` on the whole vault, grouped by note path. */
+export async function lintVault(binary: string, vaultDir: string): Promise<{ findings: Map<string, Finding[]>; error?: string }> {
+  const r = await runOkvault(binary, ["lint", "--vault", vaultDir], vaultDir, 60_000);
+  const findings = new Map<string, Finding[]>();
+  let last: Finding | null = null;
+  for (const l of r.stdout.split(/\r?\n/)) {
+    const m = /^(error|warning)\s+(.+?): (.*)$/.exec(l);
+    if (m) {
+      last = { severity: m[1] as Finding["severity"], path: m[2], message: m[3] };
+      if (!findings.has(last.path)) findings.set(last.path, []);
+      findings.get(last.path)!.push(last);
+    } else if (last && /^\s+\S/.test(l)) {
+      last.message += " " + l.trim();
+    } else {
+      last = null;
+    }
+  }
+  // Exit 1 just means errors were found; no summary line means okvault did not run.
+  if (!/\d+ notes, \d+ errors, \d+ warnings/.test(r.stdout)) return { findings, error: r.stderr.split(/\r?\n/).pop() || "okvault lint did not run" };
+  return { findings };
+}

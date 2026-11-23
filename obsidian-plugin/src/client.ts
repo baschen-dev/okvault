@@ -55,6 +55,64 @@ export interface ReviewItem {
   detail?: string;
 }
 
+export interface TicketLink {
+  key: string;
+  url?: string;
+}
+
+/** kb_get */
+export interface NoteDetail {
+  path: string;
+  title: string;
+  type: string;
+  description?: string;
+  revision: string;
+  owners?: string[];
+  tickets?: TicketLink[];
+  frontmatter: Record<string, unknown>;
+  body: string;
+  links?: string[];
+  backlinks?: string[];
+  broken_links?: string[];
+}
+
+export interface Entry {
+  path: string;
+  title: string;
+  type: string;
+  description?: string;
+}
+
+/** tracker.Issue */
+export interface Issue {
+  key: string;
+  url?: string;
+  summary: string;
+  type?: string;
+  status?: string;
+  status_category?: string;
+  priority?: string;
+  assignee?: string;
+  reporter?: string;
+  labels?: string[];
+  parent?: string;
+  updated?: string;
+  description?: string;
+  recent_comments?: { author: string; created: string; body: string }[];
+}
+
+/** kb_ticket */
+export interface TicketContext {
+  key: string;
+  url?: string;
+  ticket?: Issue;
+  tracker_note?: string;
+  linked?: Entry[];
+  mentioned?: Entry[];
+  suggested?: Hit[];
+  hint: string;
+}
+
 /** okvault's git sync state (gitsync.Status), from kb_review's git field or `okvault sync --json`. */
 export interface GitStatus {
   mode: string;
@@ -111,6 +169,16 @@ export class OkvaultClient {
   async search(args: SearchArgs): Promise<Hit[]> {
     const out = await this.call<{ hits: Hit[] | null }>("kb_search", args);
     return out.hits ?? [];
+  }
+
+  /** kb_get: one note with its okvault view (owners incl. folder defaults, ticket links, backlinks, broken links). */
+  async get(path: string): Promise<NoteDetail> {
+    return this.call<NoteDetail>("kb_get", { path });
+  }
+
+  /** kb_ticket: the ticket from the tracker (when configured) and the notes about it. */
+  async ticket(key: string): Promise<TicketContext> {
+    return this.call<TicketContext>("kb_ticket", { key });
   }
 
   /** Note paths the server knows (first 200), to check it serves this vault. */
