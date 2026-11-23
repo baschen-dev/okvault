@@ -34,3 +34,13 @@ install:
 # Register okvault with Claude Code (user scope) for this vault
 claude-add:
     claude mcp add --scope user okvault -- "$(go env GOPATH)/bin/okvault" serve --vault "$(pwd)/{{vault}}" --author claude-code
+
+# Build the Obsidian plugin and install it into the vault (enable it in Obsidian: Settings > Community plugins)
+plugin:
+    cd obsidian-plugin && npm ci && npm run build
+    mkdir -p {{vault}}/.obsidian/plugins/okvault
+    cp obsidian-plugin/main.js obsidian-plugin/manifest.json obsidian-plugin/styles.css {{vault}}/.obsidian/plugins/okvault/
+
+# Test the Obsidian plugin's MCP client against a real `okvault serve`
+plugin-test:
+    cd obsidian-plugin && npm ci && npm run check && npm test

@@ -251,6 +251,36 @@ func TestCommitEdits(t *testing.T) {
 	}
 }
 
+func TestCommitEditsLeavesObsidianConfig(t *testing.T) {
+	origin := world(t, "vault")
+	a := clone(t, origin, "Alice", "vault", config.Git{Mode: "commit"}, nil)
+	head := git(t, a.dir, "rev-parse", "HEAD")
+
+	// Opening a vault in Obsidian rewrites its config: nothing for okvault to commit.
+	writeFile(t, a.dir, "vault/.obsidian/core-plugins.json", `{"sync": true}`)
+	writeFile(t, a.dir, "vault/.obsidian/app.json", `{}`)
+	sha, err := a.s.CommitEdits(context.Background())
+	if err != nil || sha != "" {
+		t.Fatalf("config-only change: sha=%q err=%v", sha, err)
+	}
+	if got := git(t, a.dir, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("a commit was made for Obsidian config")
+	}
+
+	// A note edit is committed; the config stays out of it, uncommitted.
+	writeFile(t, a.dir, "vault/faq/typed.md", "---\ntype: FAQ\ntitle: Typed in Obsidian?\n---\nyes\n")
+	if sha, err = a.s.CommitEdits(context.Background()); err != nil || sha == "" {
+		t.Fatalf("sha=%q err=%v", sha, err)
+	}
+	files := git(t, a.dir, "show", "--name-only", "--format=%s", "HEAD")
+	if strings.Contains(files, ".obsidian") || !strings.Contains(files, "vault/faq/typed.md") {
+		t.Errorf("commit:\n%s", files)
+	}
+	if st := git(t, a.dir, "status", "--porcelain"); !strings.Contains(st, ".obsidian/") || strings.Contains(st, "faq/") {
+		t.Errorf("status after commit:\n%s", st)
+	}
+}
+
 // fakeGitHub serves the pull request endpoints okvault uses.
 type fakeGitHub struct {
 	mu    sync.Mutex

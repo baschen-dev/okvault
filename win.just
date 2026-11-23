@@ -20,3 +20,9 @@ install:
 
 claude-add:
     claude mcp add --scope user okvault -- "$(go env GOPATH)\bin\okvault.exe" serve --vault "$((Resolve-Path {{vault}}).Path)" --author claude-code
+
+plugin:
+    Push-Location obsidian-plugin; npm ci; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm run build; $c = $LASTEXITCODE; Pop-Location; if ($c) { exit $c }; New-Item -ItemType Directory -Force {{vault}}/.obsidian/plugins/okvault | Out-Null; Copy-Item obsidian-plugin/main.js, obsidian-plugin/manifest.json, obsidian-plugin/styles.css {{vault}}/.obsidian/plugins/okvault/
+
+plugin-test:
+    Push-Location obsidian-plugin; npm ci; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm run check; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm test; $c = $LASTEXITCODE; Pop-Location; exit $c

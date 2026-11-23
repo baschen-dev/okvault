@@ -8,3 +8,11 @@ vault/.obsidian/cache
 vault/.obsidian/plugins/*/data.json
 vault/.trash/
 .okvault-*.tmp
+
+# Obsidian plugin: build output and the copy installed into the vault
+obsidian-plugin/node_modules/
+obsidian-plugin/main.js
+vault/.obsidian/plugins/okvault/
+# per person: which community plugins are on, and the theme
+vault/.obsidian/community-plugins.json
+vault/.obsidian/appearance.json
