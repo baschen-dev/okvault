@@ -35,6 +35,15 @@ You can also put it in a project's `.mcp.json`:
 }
 ```
 
+To serve over HTTP rather than stdio, pass `--http` (port 8765) or `--port N`. The MCP endpoint is `http://127.0.0.1:PORT/mcp` (Streamable HTTP):
+
+```sh
+okvault serve --vault /path/to/vault --author claude-code --port 9000
+claude mcp add --scope user --transport http okvault http://127.0.0.1:9000/mcp
+```
+
+It listens on 127.0.0.1 only. `--host 0.0.0.0` accepts other machines, but there is no authentication, so keep it behind a trusted network or a reverse proxy.
+
 To use the vault in Obsidian, choose *Open folder as vault* and pick `vault/`.
 
 An existing Obsidian vault works too: notes without frontmatter are loaded as untyped notes (searchable, linked, a lint warning each) until someone gives them a `type`.
@@ -134,6 +143,7 @@ The vault can also live in its own repository. Point `--vault` (or `OKVAULT_DIR`
 
 ```
 okvault serve  [--vault DIR] [--read-only] [--author NAME] [--no-watch] [--git off|commit|push|pr]
+               [--http] [--port N] [--host ADDR]   # stdio by default; HTTP at /mcp with --http or --port
 okvault ask    [--vault DIR] [--json] QUESTION...
 okvault search [--vault DIR] [--type T] [--tag T] [--limit N] [--json] QUERY...
 okvault lint   [--vault DIR] [--strict]      # OKF conformance (errors) + hygiene (warnings)

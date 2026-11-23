@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/baschen-dev/okvault/internal/server"
 )
 
 // TestStdioSmoke builds the real binary, talks MCP over stdio, and checks that
@@ -144,5 +147,46 @@ func TestWatcherRegeneratesIndex(t *testing.T) {
 			t.Fatalf("config change not picked up: %s", b)
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestHTTPServe talks MCP over Streamable HTTP to the /mcp endpoint.
+func TestHTTPServe(t *testing.T) {
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "faq"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "faq", "q.md"), []byte("---\ntype: FAQ\ntitle: What is okvault?\n---\nAn MCP server.\n"), 0o644)
+	v, ix, err := open(nil, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := server.New(v, ix, server.Options{ReadOnly: true, Version: "test", Env: func(string) string { return "" }})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	served := make(chan error, 1)
+	sctx, stop := context.WithCancel(ctx)
+	go func() { served <- serveListener(sctx, srv.MCP, ln, root, true) }()
+
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "http", Version: "0"}, nil).
+		Connect(ctx, &mcp.StreamableClientTransport{Endpoint: "http://" + ln.Addr().String() + "/mcp"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "kb_ask", Arguments: map[string]any{"question": "what is okvault"}})
+	if err != nil || res.IsError {
+		t.Fatalf("kb_ask: %v %+v", err, res)
+	}
+	if b, _ := json.Marshal(res.StructuredContent); !strings.Contains(string(b), "An MCP server.") {
+		t.Fatalf("kb_ask = %s", b)
+	}
+	_ = cs.Close()
+
+	stop()
+	if err := <-served; err != nil {
+		t.Fatalf("serve: %v", err)
 	}
 }

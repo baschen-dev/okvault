@@ -1,0 +1,18 @@
+# Categories for GitHub's generated release notes (gh release create --generate-notes).
+# Pull requests are labelled from their Conventional Commits title by .github/workflows/pr-labels.yml.
+changelog:
+  exclude:
+    labels: [ignore-for-release]
+  categories:
+    - title: Breaking changes
+      labels: [breaking]
+    - title: Features
+      labels: [enhancement]
+    - title: Fixes
+      labels: [bug]
+    - title: Documentation
+      labels: [documentation]
+    - title: Maintenance
+      labels: [chore]
+    - title: Other changes
+      labels: ["*"]

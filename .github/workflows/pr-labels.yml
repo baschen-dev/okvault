@@ -1,0 +1,36 @@
+# Labels each pull request from its Conventional Commits title, so the generated
+# release notes (.github/release.yml) group it: feat -> enhancement, fix -> bug,
+# docs -> documentation, anything else -> chore, and "!" -> breaking.
+name: pr-labels
+
+on:
+  # _target so fork PRs can be labelled too; nothing from the PR is checked out or run.
+  pull_request_target:
+    types: [opened, edited, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label from title
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          type=$(printf '%s' "$TITLE" | sed -nE 's/^([a-z]+)(\([^)]*\))?(!?):.*/\1/p')
+          bang=$(printf '%s' "$TITLE" | sed -nE 's/^[a-z]+(\([^)]*\))?(!):.*/\2/p')
+          case "$type" in
+            feat) label=enhancement ;;
+            fix) label=bug ;;
+            docs) label=documentation ;;
+            "") echo "::warning::title is not a Conventional Commit: $TITLE"; exit 0 ;;
+            *) label=chore ;;
+          esac
+          remove=$(printf 'enhancement,bug,documentation,chore' | sed "s/$label//; s/,,/,/; s/^,//; s/,$//")
+          gh pr edit "$PR" --add-label "$label" --remove-label "$remove"
+          if [ -n "$bang" ]; then gh pr edit "$PR" --add-label breaking; fi
