@@ -201,7 +201,7 @@ func (s *Syncer) CommitEdits(ctx context.Context) (string, error) {
 			}
 		}
 		dirty, err := s.r.statusPaths(ctx, s.r.vaultSpec())
-		if err != nil || len(dirty) == 0 {
+		if dirty = s.r.edited(dirty); err != nil || len(dirty) == 0 {
 			return err
 		}
 		if _, err := l.RegenerateIndexes(); err != nil {
@@ -210,6 +210,7 @@ func (s *Syncer) CommitEdits(ctx context.Context) (string, error) {
 		if dirty, err = s.r.statusPaths(ctx, s.r.vaultSpec()); err != nil {
 			return err
 		}
+		dirty = s.r.edited(dirty)
 		var list []string
 		for _, p := range dirty {
 			if !s.r.generated(p) {

@@ -173,4 +173,24 @@ func (r *repo) generated(p string) bool {
 	return v == "log.md" || v == "index.md" || strings.HasSuffix(v, "/index.md")
 }
 
+// appConfig reports whether a repo path is in the vault's Obsidian config
+// folder. Obsidian rewrites those files on its own (opening a vault fills
+// core-plugins.json with this install's defaults), so committing them as
+// "edits" would make teammates overwrite each other's settings. A team that
+// shares settings commits them on purpose, with git.
+func (r *repo) appConfig(p string) bool {
+	return strings.HasPrefix(p, r.prefix+".obsidian/")
+}
+
+// edited filters a list of changed repo paths down to what CommitEdits commits.
+func (r *repo) edited(paths []string) []string {
+	var out []string
+	for _, p := range paths {
+		if !r.appConfig(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 var errConflict = errors.New("conflict")

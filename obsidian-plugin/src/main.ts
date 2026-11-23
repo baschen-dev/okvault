@@ -1,0 +1,485 @@
+import { FileSystemAdapter, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, parseYaml, requestUrl } from "obsidian";
+import { GitStatus, OkvaultClient, Post } from "./client";
+import { NoteInput } from "./bundle";
+import { BUNDLE_VIEW, BundleView } from "./bundleView";
+import { FAQ_VIEW, FaqView } from "./faqView";
+import { OkvaultProcess, syncNow, verifyNote } from "./server";
+import { TEAM_VIEW, TeamView } from "./teamView";
+import { DEFAULT_SETTINGS, OkvaultSettingTab, OkvaultSettings } from "./settings";
+
+export interface LocalNote extends NoteInput {
+  aliases: string[];
+  description: string;
+}
+
+/** requestUrl is not subject to CORS, which okvault's HTTP handler does not send. */
+const obsidianPost: Post = async (url, headers, body) => {
+  const r = await requestUrl({ url, method: "POST", headers, body, contentType: headers["Content-Type"], throw: false });
+  return { status: r.status, headers: r.headers, text: r.text };
+};
+
+type State = "unknown" | "connected" | "starting" | "offline";
+
+/** The vault's git policy from .okvault.yaml (what okvault will do, whether or not it runs). */
+export interface TeamGit {
+  mode: string; // off | commit | push | pr
+  base?: string;
+  commitEdits?: string;
+  pullInterval?: string;
+  error?: string;
+}
+
+/** Obsidian Git settings that make it commit, pull or push on its own. */
+const OBSIDIAN_GIT_AUTO: { key: string; label: string }[] = [
+  { key: "autoSaveInterval", label: "Auto commit-and-sync interval" },
+  { key: "autoBackupAfterFileChange", label: "Auto commit-and-sync after stopping file edits" },
+  { key: "autoPushInterval", label: "Auto push interval" },
+  { key: "autoPullInterval", label: "Auto pull interval" },
+  { key: "autoPullOnBoot", label: "Pull on startup" },
+];
+
+export default class OkvaultPlugin extends Plugin {
+  declare settings: OkvaultSettings;
+  client!: OkvaultClient;
+  lastError = "";
+  private state: State = "unknown";
+  private proc = new OkvaultProcess();
+  private connecting: Promise<boolean> | null = null;
+  private statusBar!: HTMLElement;
+  /** Last git sync state okvault reported (null: git off, read-only server, or unknown). */
+  git: GitStatus | null = null;
+  teamGit: TeamGit = { mode: "off" };
+  syncing = false;
+  private lastProblem = "";
+
+  override async onload(): Promise<void> {
+    await this.loadSettings();
+    this.client = new OkvaultClient(this.settings.serverUrl, obsidianPost);
+
+    this.registerView(FAQ_VIEW, (leaf) => new FaqView(leaf, this));
+    this.registerView(BUNDLE_VIEW, (leaf) => new BundleView(leaf, this));
+    this.registerView(TEAM_VIEW, (leaf) => new TeamView(leaf, this));
+
+    this.addRibbonIcon("message-circle-question", "okvault: ask the FAQ", () => this.openFaq());
+    this.addRibbonIcon("orbit", "okvault: bundle map", () => this.openBundle());
+    this.addRibbonIcon("git-pull-request", "okvault: versioning and review", () => this.openTeam());
+
+    this.addCommand({ id: "ask", name: "Ask the FAQ", callback: () => this.openFaq() });
+    this.addCommand({
+      id: "ask-selection",
+      name: "Ask the FAQ about the selection",
+      editorCallback: (editor) => {
+        const sel = editor.getSelection().trim();
+        this.openFaq(sel || undefined);
+      },
+    });
+    this.addCommand({ id: "bundle", name: "Open the bundle map", callback: () => this.openBundle() });
+    this.addCommand({ id: "team", name: "Open versioning and review", callback: () => this.openTeam() });
+    this.addCommand({ id: "sync", name: "Sync now (commit edits, rebase, push, update the pull request)", callback: () => this.sync() });
+    this.addCommand({
+      id: "verify",
+      name: "Mark this note as checked (okvault verify)",
+      checkCallback: (checking) => {
+        const f = this.app.workspace.getActiveFile();
+        const p = f ? this.fromObsidian(f.path) : null;
+        if (!f || !p || f.extension !== "md") return false;
+        if (!checking) void this.verify(p);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "reconnect",
+      name: "Reconnect to okvault (start it if needed)",
+      callback: async () => {
+        const ok = await this.connect(true);
+        new Notice(ok ? `okvault connected (${this.settings.serverUrl})` : `okvault: ${this.lastError}`);
+        this.refreshViews();
+      },
+    });
+
+    this.addSettingTab(new OkvaultSettingTab(this.app, this));
+    this.statusBar = this.addStatusBarItem();
+    this.statusBar.addClass("okvault-statusbar");
+    this.statusBar.addEventListener("click", () => this.openTeam());
+    this.updateStatusBar();
+
+    this.app.workspace.onLayoutReady(async () => {
+      await this.loadTeamGit();
+      await this.connect(false);
+      await this.refreshGit();
+    });
+    // okvault syncs in the background; show what it last reported.
+    this.registerInterval(window.setInterval(() => void this.refreshGit(), 30_000));
+    this.registerEvent(
+      this.app.vault.on("modify", (f) => {
+        if (f.path === this.toObsidian(".okvault.yaml")) void this.loadTeamGit().then(() => this.refreshViews());
+      }),
+    );
+  }
+
+  override onunload(): void {
+    this.proc.stop();
+  }
+
+  async loadSettings(): Promise<void> {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+
+  async saveSettings(): Promise<void> {
+    const prev = (await this.loadData()) as Partial<OkvaultSettings> | null;
+    await this.saveData(this.settings);
+    // A server this plugin started runs with the old flags: restart it.
+    const flagsChanged =
+      prev?.versioning !== this.settings.versioning ||
+      prev?.binaryPath !== this.settings.binaryPath ||
+      prev?.vaultFolder !== this.settings.vaultFolder;
+    if (this.proc.running && flagsChanged) {
+      this.proc.stop();
+      this.proc.exitInfo = "";
+      this.state = "unknown";
+      this.git = null;
+      void this.connect(true).then(() => this.refreshGit());
+    }
+    this.client?.setUrl(this.settings.serverUrl);
+    this.state = "unknown";
+    this.updateStatusBar();
+  }
+
+  /** Connected, or try once to connect (and start okvault when enabled). */
+  async ensureConnected(): Promise<boolean> {
+    if (this.state === "connected") return true;
+    return this.connect(false);
+  }
+
+  /** Probe the server; start okvault if nothing answers and auto-start is on. */
+  connect(force: boolean): Promise<boolean> {
+    if (!this.connecting) {
+      this.connecting = this.doConnect(force).finally(() => (this.connecting = null));
+    }
+    return this.connecting;
+  }
+
+  private async doConnect(force: boolean): Promise<boolean> {
+    if (!force && this.state === "offline" && !this.settings.autoStart) return false;
+    this.client.setUrl(this.settings.serverUrl);
+    if (await this.client.ping()) return this.checkVault();
+    if (!this.settings.autoStart) {
+      this.lastError = `nothing answers at ${this.settings.serverUrl}`;
+      return this.setState("offline");
+    }
+    if (!force && this.proc.exitInfo) {
+      // We already tried to start it and it died; don't respawn on every keystroke.
+      this.lastError = this.proc.exitInfo;
+      return this.setState("offline");
+    }
+    let url: URL;
+    try {
+      url = new URL(this.settings.serverUrl);
+    } catch {
+      this.lastError = `bad server URL ${this.settings.serverUrl}`;
+      return this.setState("offline");
+    }
+    if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) {
+      this.lastError = `nothing answers at ${url.host}, and okvault is only started for a local URL`;
+      return this.setState("offline");
+    }
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) {
+      this.lastError = "this vault is not on the local file system";
+      return this.setState("offline");
+    }
+    this.setState("starting");
+    this.proc.start({
+      binary: this.settings.binaryPath,
+      vaultDir: this.vaultDir()!,
+      versioning: this.settings.versioning === "follow",
+      host: url.hostname === "localhost" ? "127.0.0.1" : url.hostname.replace(/^\[|\]$/g, ""),
+      port: Number(url.port) || 80,
+    });
+    for (let i = 0; i < 40; i++) {
+      await sleep(250);
+      if (await this.client.ping()) return this.checkVault();
+      if (!this.proc.running) break;
+    }
+    this.lastError = this.proc.exitInfo || `okvault did not answer at ${url.host}: ${this.proc.lastLog()}`;
+    this.proc.stop();
+    return this.setState("offline");
+  }
+
+  /** Connected only if the server serves this vault: some of its note paths exist here. */
+  private async checkVault(): Promise<boolean> {
+    try {
+      const paths = await this.client.paths();
+      const local = new Set(this.localNotes().map((n) => n.path));
+      if (paths.length && !paths.some((p) => local.has(p))) {
+        this.lastError = `the server at ${this.settings.serverUrl} serves a different vault (check the URL or the okvault folder setting)`;
+        return this.setState("offline");
+      }
+    } catch (e) {
+      this.lastError = (e as Error).message;
+      return this.setState("offline");
+    }
+    return this.setState("connected");
+  }
+
+  // ---- versioning and collaboration (okvault's git sync) ----
+
+  /** Absolute path of the okvault vault, or null when the vault is not on disk. */
+  vaultDir(): string | null {
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) return null;
+    const base = adapter.getBasePath();
+    return this.settings.vaultFolder ? `${base}/${this.settings.vaultFolder}` : base;
+  }
+
+  /** Reads git policy from .okvault.yaml (Obsidian does not index dotfiles, so read it directly). */
+  async loadTeamGit(): Promise<void> {
+    const p = this.toObsidian(".okvault.yaml");
+    try {
+      if (!(await this.app.vault.adapter.exists(p))) {
+        this.teamGit = { mode: "off" };
+        return;
+      }
+      const y = (parseYaml(await this.app.vault.adapter.read(p)) ?? {}) as { git?: Record<string, unknown> };
+      const g = y.git ?? {};
+      this.teamGit = {
+        mode: String(g.mode ?? "off").toLowerCase(),
+        base: g.base ? String(g.base) : undefined,
+        commitEdits: g.commit_edits ? String(g.commit_edits) : undefined,
+        pullInterval: g.pull_interval !== undefined ? String(g.pull_interval) : undefined,
+      };
+    } catch (e) {
+      this.teamGit = { mode: "off", error: `.okvault.yaml: ${(e as Error).message}` };
+    }
+  }
+
+  /** Asks okvault for its sync state (kb_review carries it); a new problem raises a notice once. */
+  async refreshGit(): Promise<void> {
+    if (this.state !== "connected") return;
+    try {
+      const r = await this.client.review(1);
+      this.setGit(r.git ?? null);
+    } catch (e) {
+      this.markDisconnected((e as Error).message);
+    }
+    this.refreshTeamView();
+  }
+
+  private setGit(g: GitStatus | null): void {
+    this.git = g;
+    const problem = g?.problem ?? "";
+    if (problem && problem !== this.lastProblem) new Notice(`okvault sync: ${problem}`, 15_000);
+    this.lastProblem = problem;
+    this.updateStatusBar();
+  }
+
+  /** `okvault sync`: commit edits made here, rebase, push, update the pull request. */
+  async sync(): Promise<void> {
+    const dir = this.vaultDir();
+    if (!dir) return void new Notice("okvault: this vault is not on the local file system");
+    if (this.teamGit.mode === "off") {
+      return void new Notice("okvault: git is off for this vault. Set git.mode in .okvault.yaml (commit, push or pr).");
+    }
+    if (this.syncing) return;
+    this.syncing = true;
+    this.refreshTeamView();
+    const notice = new Notice("okvault: syncing…", 0);
+    try {
+      const r = await syncNow(this.settings.binaryPath, dir);
+      notice.hide();
+      if (r.error) {
+        new Notice(`okvault sync: ${r.error}`, 15_000);
+      } else if (r.status) {
+        this.setGit(r.status);
+        const pr = r.status.pull_request ? ` · ${r.status.pull_request}` : "";
+        if (!r.status.problem) new Notice(`okvault: synced (${r.status.mode}${r.status.branch ? ` on ${r.status.branch}` : ""})${pr}`);
+      }
+    } finally {
+      notice.hide();
+      this.syncing = false;
+      await this.refreshGit();
+      this.refreshTeamView();
+    }
+  }
+
+  /** `okvault verify`: a person records that they checked the note. Only ever on an explicit click. */
+  async verify(okPath: string): Promise<boolean> {
+    const dir = this.vaultDir();
+    if (!dir) return false;
+    const r = await verifyNote(this.settings.binaryPath, dir, okPath);
+    new Notice(`okvault: ${r.message}`, r.ok ? 5_000 : 15_000);
+    await this.refreshGit();
+    this.refreshViews();
+    return r.ok;
+  }
+
+  /** Obsidian Git's automatic commit/pull/push, which competes with okvault for the same checkout. */
+  obsidianGitConflicts(): { enabled: boolean; auto: string[]; pushEnabled: boolean } {
+    // Internal API: guard every step, it may change between Obsidian versions.
+    const plugins = (this.app as unknown as {
+      plugins?: { enabledPlugins?: Set<string>; plugins?: Record<string, { settings?: Record<string, unknown> }> };
+    }).plugins;
+    const enabled = !!plugins?.enabledPlugins?.has("obsidian-git");
+    if (!enabled) return { enabled, auto: [], pushEnabled: false };
+    const st = plugins?.plugins?.["obsidian-git"]?.settings ?? {};
+    const auto = OBSIDIAN_GIT_AUTO.filter((o) => {
+      const v = st[o.key];
+      return typeof v === "number" ? v > 0 : v === true;
+    }).map((o) => o.label);
+    return { enabled, auto, pushEnabled: st.disablePush !== true };
+  }
+
+  openObsidianGitSettings(): void {
+    const setting = (this.app as unknown as { setting?: { open(): void; openTabById(id: string): void } }).setting;
+    setting?.open();
+    setting?.openTabById("obsidian-git");
+  }
+
+  markDisconnected(reason: string): void {
+    this.lastError = reason;
+    this.setState("offline");
+  }
+
+  private setState(s: State): boolean {
+    this.state = s;
+    if (s === "connected") this.lastError = "";
+    this.updateStatusBar();
+    return s === "connected";
+  }
+
+  statusText(): string {
+    switch (this.state) {
+      case "connected":
+        return `Connected to okvault ${this.client.serverVersion} at ${this.settings.serverUrl}${this.proc.running ? " (started by this plugin)" : ""}.`;
+      case "starting":
+        return "Starting okvault…";
+      case "offline":
+        return `Not connected: ${this.lastError}`;
+      default:
+        return "Not connected yet.";
+    }
+  }
+
+  private updateStatusBar(): void {
+    if (!this.statusBar) return;
+    let label = { connected: "okvault ●", starting: "okvault …", offline: "okvault ○", unknown: "okvault ○" }[this.state];
+    const g = this.git;
+    if (this.state === "connected" && g) {
+      label += ` ${g.mode}`;
+      if (g.unpushed) label += ` ↑${g.unpushed}`;
+      if (g.problem) label += " ⚠";
+    }
+    this.statusBar.setText(label);
+    this.statusBar.setAttr("aria-label", this.statusText() + (g?.problem ? `\nSync problem: ${g.problem}` : ""));
+    this.statusBar.toggleClass("is-offline", this.state === "offline");
+    this.statusBar.toggleClass("has-problem", !!g?.problem);
+  }
+
+  // ---- paths: okvault paths are relative to the okvault folder ----
+
+  toObsidian(p: string): string {
+    return this.settings.vaultFolder ? `${this.settings.vaultFolder}/${p}` : p;
+  }
+
+  fromObsidian(p: string): string | null {
+    const f = this.settings.vaultFolder;
+    if (!f) return p;
+    return p.startsWith(f + "/") ? p.slice(f.length + 1) : null;
+  }
+
+  async openNote(okPath: string, newLeaf: boolean): Promise<void> {
+    const p = this.toObsidian(okPath);
+    const file = this.app.vault.getAbstractFileByPath(p);
+    if (!(file instanceof TFile)) {
+      new Notice(`okvault: ${p} is not in this vault. Check the "okvault folder" setting.`);
+      return;
+    }
+    const leaf = newLeaf ? this.app.workspace.getLeaf("tab") : this.mainLeaf();
+    await leaf.openFile(file);
+  }
+
+  /** A leaf in the main area, so opening a note does not replace a sidebar view. */
+  private mainLeaf(): WorkspaceLeaf {
+    const md = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (md) return md.leaf;
+    return this.app.workspace.getLeaf(false);
+  }
+
+  /** The vault's notes as Obsidian's metadata cache sees them (live, no server needed). */
+  localNotes(): LocalNote[] {
+    const mc = this.app.metadataCache;
+    const out: LocalNote[] = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const p = this.fromObsidian(file.path);
+      if (p === null) continue;
+      const fm = mc.getFileCache(file)?.frontmatter ?? {};
+      const links: string[] = [];
+      for (const target of Object.keys(mc.resolvedLinks[file.path] ?? {})) {
+        const t = this.fromObsidian(target);
+        if (t !== null && t.endsWith(".md")) links.push(t);
+      }
+      out.push({
+        path: p,
+        title: str(fm.title) || file.basename,
+        type: str(fm.type),
+        status: str(fm.status),
+        aliases: list(fm.aliases),
+        description: str(fm.description),
+        links,
+        broken: Object.keys(mc.unresolvedLinks[file.path] ?? {}).length,
+      });
+    }
+    return out;
+  }
+
+  // ---- views ----
+
+  async openFaq(query?: string): Promise<void> {
+    const leaf = await this.revealView(FAQ_VIEW, "right");
+    const view = leaf.view as FaqView;
+    if (query) view.setQuery(query);
+    else view.focus();
+  }
+
+  async openTeam(): Promise<void> {
+    await this.revealView(TEAM_VIEW, "right");
+  }
+
+  private refreshTeamView(): void {
+    for (const l of this.app.workspace.getLeavesOfType(TEAM_VIEW)) (l.view as TeamView).render();
+  }
+
+  async openBundle(): Promise<void> {
+    await this.revealView(BUNDLE_VIEW, "main");
+  }
+
+  private async revealView(type: string, where: "right" | "main"): Promise<WorkspaceLeaf> {
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(type)[0];
+    if (!leaf) {
+      leaf = where === "right" ? (ws.getRightLeaf(false) ?? ws.getLeaf("tab")) : ws.getLeaf("tab");
+      await leaf.setViewState({ type, active: true });
+    }
+    await ws.revealLeaf(leaf);
+    return leaf;
+  }
+
+  refreshViews(): void {
+    for (const l of this.app.workspace.getLeavesOfType(TEAM_VIEW)) void (l.view as TeamView).reload();
+    for (const l of this.app.workspace.getLeavesOfType(FAQ_VIEW)) (l.view as FaqView).refresh();
+    for (const l of this.app.workspace.getLeavesOfType(BUNDLE_VIEW)) void (l.view as BundleView).reload();
+  }
+}
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+function list(v: unknown): string[] {
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string");
+  return typeof v === "string" ? [v] : [];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => window.setTimeout(r, ms));
+}

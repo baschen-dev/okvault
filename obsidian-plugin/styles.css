@@ -1,0 +1,228 @@
+/* okvault plugin. Categorical and status colours: validated reference palette, light and dark steps. */
+
+.okvault-faq,
+.okvault-bundle {
+  --okv-s1: #2a78d6;
+  --okv-s2: #eb6834;
+  --okv-s3: #1baf7a;
+  --okv-s4: #eda100;
+  --okv-s5: #e87ba4;
+  --okv-s6: #008300;
+  --okv-s7: #6250d6;
+  --okv-other: #898781;
+  --okv-critical: #d03b3b;
+  --okv-serious: #ec835a;
+  --okv-warning: #fab219;
+  --okv-muted: #898781;
+  --okv-surface: var(--background-primary);
+}
+.theme-dark .okvault-faq,
+.theme-dark .okvault-bundle {
+  --okv-s1: #3987e5;
+  --okv-s2: #d95926;
+  --okv-s3: #199e70;
+  --okv-s4: #c98500;
+  --okv-s5: #d55181;
+  --okv-s6: #0ca30c;
+  --okv-s7: #9085e9;
+}
+
+/* ---------- shared ---------- */
+
+.okvault-muted { color: var(--text-muted); }
+.okvault-path { color: var(--text-faint); font-size: var(--font-ui-smaller); font-family: var(--font-monospace); word-break: break-all; }
+.okvault-type {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.okvault-section { margin-top: 12px; }
+.okvault-section-title {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 12px 0 6px;
+}
+.okvault-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.okvault-s1 { background: var(--okv-s1); fill: var(--okv-s1); }
+.okvault-s2 { background: var(--okv-s2); fill: var(--okv-s2); }
+.okvault-s3 { background: var(--okv-s3); fill: var(--okv-s3); }
+.okvault-s4 { background: var(--okv-s4); fill: var(--okv-s4); }
+.okvault-s5 { background: var(--okv-s5); fill: var(--okv-s5); }
+.okvault-s6 { background: var(--okv-s6); fill: var(--okv-s6); }
+.okvault-s7 { background: var(--okv-s7); fill: var(--okv-s7); }
+.okvault-sother { background: var(--okv-other); fill: var(--okv-other); }
+
+/* ---------- FAQ view ---------- */
+
+.okvault-faq { padding: 8px 12px; }
+.okvault-searchbar { position: sticky; top: 0; background: var(--background-secondary); padding-bottom: 6px; z-index: 1; }
+.okvault-input { width: 100%; }
+.okvault-status { font-size: var(--font-ui-smaller); color: var(--text-muted); margin: 4px 0 8px; }
+.okvault-status-err { color: var(--text-error); }
+.okvault-answer {
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: var(--radius-m);
+  padding: 8px 10px;
+  background: var(--background-primary);
+}
+.okvault-answer-head { display: flex; align-items: center; gap: 6px; font-weight: var(--font-semibold); }
+.okvault-answer-icon { color: var(--interactive-accent); display: flex; }
+.okvault-answer-q { flex: 1; cursor: pointer; color: var(--text-normal); }
+.okvault-answer-q:hover { color: var(--text-accent); }
+.okvault-badge {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+.okvault-answer-body { font-size: var(--font-ui-small); }
+.okvault-answer-body > :first-child { margin-top: 6px; }
+.okvault-answer-foot { margin-top: 4px; }
+.okvault-hit { padding: 6px 8px; border-radius: var(--radius-s); cursor: pointer; }
+.okvault-hit:hover { background: var(--background-modifier-hover); }
+.okvault-hit-top { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.okvault-hit-title { font-weight: var(--font-medium); }
+.okvault-hit-desc { font-size: var(--font-ui-small); color: var(--text-muted); margin: 2px 0; }
+.okvault-empty { color: var(--text-muted); padding: 12px 0; }
+.okvault-retry { margin-top: 12px; }
+
+/* ---------- bundle view ---------- */
+
+.okvault-bundle { padding: 12px 16px; }
+.okvault-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--font-ui-small); }
+.okvault-legend { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.okvault-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-ui-smaller);
+  padding: 2px 8px;
+  height: auto;
+  border-radius: 999px;
+  box-shadow: none;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.okvault-chip.is-off { opacity: 0.45; }
+.okvault-chip.is-off .okvault-swatch { background: transparent; border: 1px solid var(--text-faint); }
+.okvault-legend-review { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-ui-smaller); margin-left: auto; }
+.okvault-review-key { display: inline-flex; gap: 4px; align-items: center; color: var(--text-muted); }
+.okvault-ring-swatch { width: 10px; height: 10px; border-radius: 50%; border: 2px solid; }
+.okvault-ring-swatch.okvault-r-critical { border-color: var(--okv-critical); }
+.okvault-ring-swatch.okvault-r-serious { border-color: var(--okv-serious); }
+.okvault-ring-swatch.okvault-r-warning { border-color: var(--okv-warning); }
+.okvault-ring-swatch.okvault-r-muted { border-color: var(--okv-muted); border-style: dashed; }
+
+.okvault-chart { position: relative; max-width: 980px; max-height: 75vh; margin: 0 auto; }
+.okvault-chart svg { max-height: 75vh; }
+.okvault-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+
+.okvault-edge { fill: none; stroke: var(--text-faint); stroke-opacity: 0.35; stroke-width: 1.2; transition: stroke-opacity 120ms; }
+.okvault-edge.is-intra { stroke-dasharray: none; }
+.is-highlighting .okvault-edge { stroke-opacity: 0.08; }
+.is-highlighting .okvault-edge.is-on { stroke: var(--interactive-accent); stroke-opacity: 0.9; stroke-width: 2; }
+
+.okvault-arc { fill: var(--background-modifier-border); cursor: pointer; transition: fill 120ms; }
+.okvault-arc:hover, .okvault-arc.is-focus { fill: var(--interactive-accent); }
+
+.okvault-node { cursor: pointer; outline: none; }
+.okvault-dot { stroke: var(--okv-surface); stroke-width: 2; transition: opacity 120ms; }
+.okvault-ring { fill: none; stroke-width: 2; }
+.okvault-ring.okvault-r-critical { stroke: var(--okv-critical); }
+.okvault-ring.okvault-r-serious { stroke: var(--okv-serious); }
+.okvault-ring.okvault-r-warning { stroke: var(--okv-warning); }
+.okvault-ring.okvault-r-muted { stroke: var(--okv-muted); stroke-dasharray: 3 2; }
+.okvault-hit-target { fill: transparent; }
+.is-highlighting .okvault-node { opacity: 0.25; }
+.is-highlighting .okvault-node.is-on { opacity: 1; }
+.okvault-node:focus-visible .okvault-dot { stroke: var(--interactive-accent); }
+
+.okvault-label { font-size: 15px; fill: var(--text-muted); pointer-events: none; }
+.is-highlighting .okvault-label { opacity: 0.3; }
+.is-highlighting .okvault-label.is-on { opacity: 1; fill: var(--text-normal); font-weight: 600; }
+.okvault-section-label, .okvault-arc-label { font-size: 16px; font-weight: 600; fill: var(--text-muted); pointer-events: none; }
+.okvault-empty-text { fill: var(--text-muted); font-size: 14px; }
+
+.okvault-tip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  max-width: 280px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: var(--shadow-s);
+  border-radius: var(--radius-m);
+  padding: 6px 8px;
+  font-size: var(--font-ui-smaller);
+}
+.okvault-tip-title { font-weight: var(--font-semibold); color: var(--text-normal); margin-bottom: 2px; }
+.okvault-tip-meta { display: flex; align-items: center; gap: 6px; color: var(--text-muted); }
+.okvault-tip-row { color: var(--text-muted); }
+.okvault-tip-path { color: var(--text-faint); font-family: var(--font-monospace); margin-top: 2px; }
+.okvault-t-critical, .okvault-t-serious, .okvault-t-warning { color: var(--text-normal); }
+
+.okvault-table-wrap { overflow-x: auto; }
+.okvault-table { width: 100%; border-collapse: collapse; font-size: var(--font-ui-small); }
+.okvault-table th { text-align: left; color: var(--text-muted); font-weight: var(--font-medium); border-bottom: 1px solid var(--background-modifier-border); padding: 4px 8px; }
+.okvault-table td { border-bottom: 1px solid var(--background-modifier-border); padding: 4px 8px; vertical-align: top; }
+.okvault-table tr { cursor: pointer; }
+.okvault-table tr:hover, .okvault-table tr.is-focus { background: var(--background-modifier-hover); }
+.okvault-table .is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.okvault-type-count { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; }
+
+.okvault-statusbar { cursor: pointer; }
+.okvault-statusbar.is-offline { color: var(--text-faint); }
+
+/* ---------- versioning view ---------- */
+
+.okvault-team { padding: 8px 12px; }
+.okvault-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  background: var(--background-primary);
+}
+.okvault-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.okvault-card-title { font-weight: var(--font-semibold); }
+.okvault-kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: var(--font-ui-small); }
+.okvault-k { color: var(--text-muted); white-space: nowrap; }
+.okvault-v { word-break: break-word; }
+.okvault-problem {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-s);
+  border-left: 3px solid #d03b3b;
+  background: rgba(208, 59, 59, 0.08);
+  font-size: var(--font-ui-small);
+  white-space: pre-wrap;
+}
+.okvault-hint { margin-top: 6px; font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.okvault-warn { border-left: 3px solid #fab219; font-size: var(--font-ui-small); }
+.okvault-warn ul { margin: 6px 0; padding-left: 18px; }
+.okvault-reasons { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; }
+.okvault-reason {
+  font-size: var(--font-ui-smaller);
+  border-radius: 999px;
+  padding: 0 6px;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+}
+.okvault-reason-broken-links { border-color: #d03b3b; }
+.okvault-reason-stale { border-color: #ec835a; }
+.okvault-reason-unverified { border-color: #fab219; }
+.okvault-review { cursor: default; }
+.okvault-review .okvault-hit-title { cursor: pointer; }
+.okvault-review .okvault-hit-title:hover { color: var(--text-accent); }
+.okvault-verify { margin-top: 4px; font-size: var(--font-ui-smaller); }
+.okvault-statusbar.has-problem { color: var(--text-error); }

@@ -1,0 +1,106 @@
+// Starts and stops a local `okvault serve` for the open vault, and runs okvault
+// commands (sync, verify) in it. Desktop only. No Obsidian import, so tests run it under Node.
+import { spawn, execFile, type ChildProcess } from "child_process";
+import type { GitStatus } from "./client.ts";
+
+export interface SpawnOptions {
+  binary: string;
+  vaultDir: string;
+  host: string;
+  port: number;
+  /** true: commit, push and open pull requests as .okvault.yaml says; false: read-only, git off. */
+  versioning: boolean;
+}
+
+export class OkvaultProcess {
+  private proc: ChildProcess | null = null;
+  private stderr: string[] = [];
+  exitInfo = "";
+
+  get running(): boolean {
+    return this.proc !== null && this.proc.exitCode === null;
+  }
+
+  start(o: SpawnOptions): void {
+    this.stop();
+    this.stderr = [];
+    this.exitInfo = "";
+    const args = ["serve", "--vault", o.vaultDir, "--host", o.host, "--port", String(o.port), "--author", "obsidian"];
+    // Without --read-only okvault also keeps index.md files in step with edits and,
+    // when .okvault.yaml turns git on, commits and syncs. --read-only turns all of that off.
+    if (!o.versioning) args.push("--read-only", "--git", "off");
+    const p = spawn(o.binary, args, { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
+    this.proc = p;
+    p.stderr?.on("data", (b: Buffer) => {
+      this.stderr.push(...b.toString().split(/\r?\n/).filter(Boolean));
+      if (this.stderr.length > 50) this.stderr.splice(0, this.stderr.length - 50);
+    });
+    p.on("error", (e) => {
+      this.exitInfo = `could not run ${o.binary}: ${e.message}`;
+      if (this.proc === p) this.proc = null;
+    });
+    p.on("exit", (code) => {
+      if (!this.exitInfo) this.exitInfo = `okvault exited (${code}): ${this.lastLog()}`;
+      if (this.proc === p) this.proc = null;
+    });
+  }
+
+  lastLog(n = 3): string {
+    return this.stderr.slice(-n).join(" | ");
+  }
+
+  stop(): void {
+    if (this.proc && this.proc.exitCode === null) this.proc.kill();
+    this.proc = null;
+  }
+}
+
+export interface CliResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+/**
+ * Runs `okvault ARGS` and returns its output. The timeout guards against git
+ * waiting on a credential prompt (okvault runs SSH in batch mode, but a
+ * credential helper can still block).
+ */
+export function runOkvault(binary: string, args: string[], cwd: string, timeoutMs = 120_000): Promise<CliResult> {
+  return new Promise((resolve) => {
+    execFile(binary, args, { cwd, timeout: timeoutMs, windowsHide: true, maxBuffer: 4 << 20 }, (err, stdout, stderr) => {
+      const e = err as (NodeJS.ErrnoException & { code?: number | string; killed?: boolean }) | null;
+      let code = 0;
+      if (e) code = typeof e.code === "number" ? e.code : 1;
+      if (e?.killed) stderr = `${stderr}\nokvault ${args[0]} timed out after ${Math.round(timeoutMs / 1000)}s`;
+      else if (e && typeof e.code === "string") stderr = `${stderr}\ncould not run ${binary}: ${e.message}`;
+      resolve({ code, stdout: String(stdout), stderr: String(stderr).trim() });
+    });
+  });
+}
+
+/** `okvault sync --json`: commit edits, rebase, push, update the pull request. */
+export async function syncNow(binary: string, vaultDir: string): Promise<{ status?: GitStatus; error?: string }> {
+  const r = await runOkvault(binary, ["sync", "--vault", vaultDir, "--json"], vaultDir);
+  const lastLine = (s: string) => s.split(/\r?\n/).filter((l) => l.trim() && !l.startsWith("time=")).pop() ?? "";
+  if (r.code !== 0) return { error: lastLine(r.stderr) || lastLine(r.stdout) || `okvault sync exited ${r.code}` };
+  try {
+    return { status: JSON.parse(r.stdout) as GitStatus };
+  } catch {
+    return { error: `unexpected output from okvault sync: ${r.stdout.slice(0, 200)}` };
+  }
+}
+
+/** `okvault verify`: records that a person checked the note (and commits it when git is on). */
+export async function verifyNote(binary: string, vaultDir: string, path: string, by?: string): Promise<{ ok: boolean; message: string }> {
+  const args = ["verify", "--vault", vaultDir];
+  if (by) args.push("--by", by);
+  args.push(path);
+  const r = await runOkvault(binary, args, vaultDir);
+  const out = [r.stdout, r.stderr]
+    .join("\n")
+    .split(/\r?\n/)
+    .filter((l) => l.trim() && !l.startsWith("time="))
+    .join("\n");
+  return { ok: r.code === 0, message: out || (r.code === 0 ? `verified ${path}` : `okvault verify exited ${r.code}`) };
+}

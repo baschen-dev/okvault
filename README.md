@@ -46,6 +46,8 @@ It listens on 127.0.0.1 only. `--host 0.0.0.0` accepts other machines, but there
 
 To use the vault in Obsidian, choose *Open folder as vault* and pick `vault/`.
 
+The optional [Obsidian plugin](obsidian-plugin/README.md) adds two views to Obsidian. *Ask the FAQ* uses `kb_ask` and `kb_search` from a local okvault, so it gives the same answers agents get. The *bundle map* shows sections, note types and links, and marks the notes that need review. A versioning panel shows git sync state and pull request, offers *Sync now*, and lets people mark notes as checked (`okvault verify`). Install it with `just plugin`. If you also use the Obsidian Git plugin, turn off its automatic commit, pull and push, because okvault owns git in the vault; see [Obsidian Git](obsidian-plugin/README.md#obsidian-git).
+
 An existing Obsidian vault works too: notes without frontmatter are loaded as untyped notes (searchable, linked, a lint warning each) until someone gives them a `type`.
 
 ## MCP tools
@@ -105,7 +107,7 @@ git:
 
 Details that matter in a team:
 
-- **Only okvault's files are committed.** Commits use `git commit --only` with the paths okvault wrote, so whatever you staged yourself stays staged and out of them. With `commit_edits`, uncommitted changes under the vault folder are committed as `docs(kb): edits made outside okvault`.
+- **Only okvault's files are committed.** Commits use `git commit --only` with the paths okvault wrote, so whatever you staged yourself stays staged and out of them. With `commit_edits`, uncommitted changes under the vault folder are committed as `docs(kb): edits made outside okvault`, except Obsidian's `.obsidian/` folder: Obsidian rewrites those files itself (opening a vault fills `core-plugins.json` with that install's defaults), so a team that shares settings commits them on purpose.
 - **Generated files never block a rebase.** Conflicts in `index.md` are resolved by regenerating it, and `log.md` conflicts by merging both sides. Index regeneration waits while git is rebasing or merging (by okvault or by you), and okvault processes sharing one checkout (one per Claude Code session) take turns through a lock file in `.git`.
 - **Real conflicts stop, they do not guess.** If a teammate changed the same note, the rebase is aborted and your commits stay as they were; `kb_write`, `kb_review` and `okvault sync` report the problem. Fetching, pushing and GitHub calls run outside the vault's write lock, so writes never wait on the network, and SSH runs in batch mode so a passphrase prompt fails instead of hanging. Uncommitted edits to a file that incoming commits also change are never stashed away: okvault refuses and says so.
 - **Squash merges are handled.** When the branch's pull request was merged (squash, rebase or merge commit), okvault drops what it carried and opens a new pull request for later changes. This needs the GitHub API; without a token okvault pushes the branch and reports the link to open the pull request by hand.
@@ -160,6 +162,7 @@ okvault sync   [--vault DIR] [--git MODE] [--json]   # commit edits, rebase, pus
 just test         # vet + unit + in-memory MCP + real stdio smoke test
 just lint index   # check the vault, refresh indexes
 just win::test    # Windows (PowerShell 7)
+just plugin-test  # Obsidian plugin: typecheck, MCP client against a real okvault serve
 ```
 
 CI fails if the vault fails lint or if a generated `index.md` is out of date.
