@@ -105,9 +105,15 @@ CI builds and tests the plugin on every pull request; the build is attached to t
 
 ### Releasing
 
-1. `just plugin-version 0.3.0` (or `just win::plugin-version 0.3.0`) sets the version in `manifest.json`, `package.json` and `package-lock.json`, and adds it to `versions.json` with the plugin's `minAppVersion`. Merge that change.
-2. Tag `main` with the same version: `git tag v0.3.0 && git push origin v0.3.0`.
+1. `just plugin-version 0.3.1` (or `just win::plugin-version 0.3.1`) sets the version in `manifest.json`, `package.json` and `package-lock.json`, copies `manifest.json` to the repository root, and adds the version to the root `versions.json` with the plugin's `minAppVersion`. Merge that change.
+2. Tag `main` with the same version: `git tag v0.3.1 && git push origin v0.3.1`.
 
-The `release` workflow checks that the tag matches `manifest.json`, runs the tests, builds, and publishes the release with generated notes. If you made the release by hand (`gh release create`), it replaces the assets with the CI build.
+The `release` workflow checks that the tag matches both manifests, runs the tests, builds, and publishes the release with generated notes. If you made the release by hand (`gh release create`), it replaces the assets with the CI build.
+
+### Community plugin directory
+
+Obsidian's [community directory](https://community.obsidian.md) reads `manifest.json` and `versions.json` at the root of `main`, and downloads the plugin from the release tagged exactly with the manifest version (`0.3.1`, no `v`). So the release workflow also publishes the same three files under that tag, as a release that is not marked latest. Go builds use only the `v*` tags (`git describe --match 'v*'`).
+
+To list the plugin, sign in at community.obsidian.md with an Obsidian account, link your GitHub account, and add `baschen-dev/okvault`. Review is automatic; fix any problems it reports by releasing a new version.
 
 `npm test` builds okvault from `../cmd/okvault` unless `OKVAULT_BIN` points at a binary; the preview needs `OKVAULT_BIN` or runs `go run`. The preview loads the real view code with a small stub of the Obsidian API. It is for checking layout and does not replace trying the plugin in Obsidian.

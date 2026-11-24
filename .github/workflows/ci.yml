@@ -53,9 +53,10 @@ jobs:
         run: |
           m=$(node -p "require('./manifest.json').version")
           p=$(node -p "require('./package.json').version")
-          v=$(node -p "require('./versions.json')['$m'] ?? ''")
+          v=$(node -p "require('../versions.json')['$m'] ?? ''")
           [ "$m" = "$p" ] || { echo "::error::manifest.json is $m, package.json is $p"; exit 1; }
-          [ -n "$v" ] || { echo "::error file=obsidian-plugin/versions.json::no entry for $m"; exit 1; }
+          [ -n "$v" ] || { echo "::error file=versions.json::no entry for $m"; exit 1; }
+          node -e "const a=require('./manifest.json'),b=require('../manifest.json');process.exit(JSON.stringify(a)===JSON.stringify(b)?0:1)"             || { echo "::error file=manifest.json::differs from obsidian-plugin/manifest.json; run 'just plugin-version $m'"; exit 1; }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: okvault-obsidian
