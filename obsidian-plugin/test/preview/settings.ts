@@ -1,9 +1,11 @@
 import { TFolder } from "obsidian";
 import { TeamSettingsSection } from "../../src/teamSettings";
+import { ConnectionsSection } from "../../src/connectionsSection";
 
 const files: Record<string, string> = { ".okvault.yaml": await (await fetch("/okvault.yaml")).text() };
 const plugin: any = {
   settings: { binaryPath: "okvault" },
+  vaultDir: () => "vault",
   toObsidian: (p: string) => p,
   fromObsidian: (p: string) => p,
   loadTeamGit: async () => {},
@@ -21,4 +23,8 @@ const plugin: any = {
   },
 };
 (window as any).files = files;
-await new TeamSettingsSection(plugin).display(document.getElementById("settings")!);
+const host = document.getElementById("settings")!;
+const connEl = host.createDiv();
+const team = new TeamSettingsSection(plugin);
+await team.display(host.createDiv());
+new ConnectionsSection(plugin, team).display(connEl);

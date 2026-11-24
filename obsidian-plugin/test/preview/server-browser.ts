@@ -9,3 +9,6 @@ export async function lintVault(_b: string, _d: string) {
   const r = await (await fetch("/lint")).json();
   return { findings: new Map(Object.entries(r.findings)), error: r.error };
 }
+export async function checkConnections(_b: string, _d: string, o: { jiraUrl?: string } = {}) {
+  return (await fetch("/connections?jira=" + encodeURIComponent(o.jiraUrl ?? "") + location.search.replace("?", "&"))).json();
+}

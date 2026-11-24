@@ -22,7 +22,9 @@ type GitHub struct {
 	Owner string
 	Repo  string
 	Token string
-	HTTP  *http.Client
+	// TokenSource says where Token came from (never the value).
+	TokenSource string
+	HTTP        *http.Client
 }
 
 // PullRequest is the subset of a GitHub pull request okvault uses.
@@ -67,20 +69,34 @@ func newGitHub(remote string, env func(string) string) (*GitHub, error) {
 	} else {
 		g.API = "https://" + host + "/api/v3"
 	}
+	g.Token, g.TokenSource = tokenFor(host, env)
+	return g, nil
+}
+
+// tokenFor finds the API token for a GitHub host and says where it came from:
+// GH_TOKEN, GITHUB_TOKEN, else the GitHub CLI's login; "none" when there is none.
+func tokenFor(host string, env func(string) string) (token, source string) {
 	for _, k := range []string{"GH_TOKEN", "GITHUB_TOKEN"} {
 		if t := strings.TrimSpace(env(k)); t != "" {
-			g.Token = t
-			break
+			return t, k
 		}
 	}
-	if g.Token == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if out, err := exec.CommandContext(ctx, "gh", "auth", "token", "--hostname", host).Output(); err == nil {
-			g.Token = strings.TrimSpace(string(out))
-		}
+	if t := ghAuthToken(host); t != "" {
+		return t, "GitHub CLI (gh auth login)"
 	}
-	return g, nil
+	return "", "none"
+}
+
+// ghAuthToken asks the GitHub CLI for its token for host. A variable so tests
+// never reach the real `gh` (and its real login).
+var ghAuthToken = func(host string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gh", "auth", "token", "--hostname", host).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func redactURL(u string) string { return credInURL.ReplaceAllString(u, "$1") }

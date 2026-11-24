@@ -9,7 +9,7 @@ import { cpSync, mkdtempSync, readFileSync, appendFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OkvaultClient, parseMessages, type Post } from "../src/client.ts";
-import { OkvaultProcess, checkConfig, lintVault, syncNow, verifyNote } from "../src/server.ts";
+import { OkvaultProcess, checkConfig, checkConnections, lintVault, syncNow, verifyNote } from "../src/server.ts";
 import { fillTemplate, folderFor, kebab, mergeAliases, normalizeKey, notePath, relativeLink, ticketKeyAt, ticketsOf, trustOf } from "../src/noteFacts.ts";
 import { applyTeamConfig, checkTeamConfig, emptyConfig, readTeamConfig, type TeamConfig } from "../src/teamConfig.ts";
 import { buildBundle } from "../src/bundle.ts";
@@ -287,11 +287,72 @@ try {
 } finally {
   gproc.stop();
   await sleep(500);
+}
+
+// ---- connections: okvault connections against a scratch repo and a fake Jira ----
+{
+  const { createServer } = await import("node:http");
+  const TOKEN = "jira-secret-token-123";
+  const jira = createServer((req, res) => {
+    const auth = req.headers.authorization ?? "";
+    if (auth !== "Basic " + Buffer.from("ada@example.com:" + TOKEN).toString("base64")) {
+      res.writeHead(401).end('{"errorMessages":["You are not authenticated."]}');
+      return;
+    }
+    const u = new URL(req.url!, "http://x");
+    if (u.pathname === "/rest/api/3/myself") res.end('{"displayName":"Ada Lovelace"}');
+    else if (u.pathname === "/rest/api/3/project/search")
+      res.end(JSON.stringify({ values: [{ key: "OPS", name: "Operations" }, { key: "PROJ", name: "Product" }], isLast: true }));
+    else res.writeHead(404).end("{}");
+  });
+  await new Promise<void>((r) => jira.listen(0, "127.0.0.1", () => r()));
+  const jiraUrl = `http://127.0.0.1:${(jira.address() as { port: number }).port}`;
+
+  const T2 = mkdtempSync(join(tmpdir(), "okvault-conn-"));
+  const git2 = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git2(T2, "init", "-q", "--bare", "-b", "main", join(T2, "remote.git"));
+  const w = join(T2, "kb");
+  git2(T2, "clone", "-q", join(T2, "remote.git"), w);
+  git2(w, "config", "user.name", "ada");
+  git2(w, "config", "user.email", "ada@example.com");
+  writeFileSync(join(w, "note.md"), "---\ntype: Reference\n---\nx\n");
+  git2(w, "add", "-A");
+  git2(w, "commit", "-qm", "init");
+
+  const saved = { t: process.env.JIRA_API_TOKEN, e: process.env.JIRA_EMAIL };
   try {
-    rmSync(TMP, { recursive: true, force: true });
-  } catch {
-    /* Windows may still hold a handle; the OS cleans temp */
+    delete process.env.JIRA_API_TOKEN;
+    delete process.env.JIRA_EMAIL;
+    const none = await checkConnections(BIN, w);
+    check("connections: no tracker configured, local remote, push works",
+      !none.error && !none.result?.jira && none.result?.github.push === "ok" && /not on GitHub/.test(none.result?.github.api_problem ?? ""),
+      JSON.stringify(none).slice(0, 220));
+    const noCreds = await checkConnections(BIN, w, { jiraUrl, pushCheck: false });
+    check("connections: missing Jira credentials are named, not guessed", noCreds.result?.jira?.credentials === "none" && /JIRA_API_TOKEN is not set/.test(noCreds.result?.jira?.problem ?? ""), JSON.stringify(noCreds.result?.jira));
+    process.env.JIRA_API_TOKEN = TOKEN;
+    process.env.JIRA_EMAIL = "ada@example.com";
+    const ok = await checkConnections(BIN, w, { jiraUrl, jiraApi: "3", pushCheck: false });
+    const j = ok.result?.jira;
+    check("connections: signs in and lists Jira projects", j?.user === "Ada Lovelace" && j.projects?.map((p) => p.key).join() === "OPS,PROJ" && !j.problem, JSON.stringify(j));
+    check("connections: the token never reaches the output", !JSON.stringify(ok).includes(TOKEN));
+  } finally {
+    if (saved.t === undefined) delete process.env.JIRA_API_TOKEN;
+    else process.env.JIRA_API_TOKEN = saved.t;
+    if (saved.e === undefined) delete process.env.JIRA_EMAIL;
+    else process.env.JIRA_EMAIL = saved.e;
+    jira.close();
+    try {
+      rmSync(T2, { recursive: true, force: true });
+    } catch {
+      /* Windows may still hold a handle */
+    }
   }
+}
+
+try {
+  rmSync(TMP, { recursive: true, force: true }); // after every section: BIN may live here
+} catch {
+  /* Windows may still hold a handle; the OS cleans temp */
 }
 
 console.log(failures ? `\n${failures} failed` : "\nall passed");

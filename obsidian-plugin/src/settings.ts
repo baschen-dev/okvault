@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type OkvaultPlugin from "./main";
 import { TeamSettingsSection } from "./teamSettings";
+import { ConnectionsSection } from "./connectionsSection";
 
 export interface OkvaultSettings {
   /** okvault's MCP endpoint, as printed by `okvault serve --port N`. */
@@ -27,12 +28,14 @@ export const DEFAULT_SETTINGS: OkvaultSettings = {
 
 export class OkvaultSettingTab extends PluginSettingTab {
   private team: TeamSettingsSection;
+  private connections: ConnectionsSection;
   constructor(
     app: App,
     private plugin: OkvaultPlugin,
   ) {
     super(app, plugin);
     this.team = new TeamSettingsSection(plugin);
+    this.connections = new ConnectionsSection(plugin, this.team);
   }
 
   override display(): void {
@@ -120,6 +123,8 @@ export class OkvaultSettingTab extends PluginSettingTab {
         }),
       );
 
-    void this.team.display(containerEl.createDiv({ cls: "okvault-team-settings" }));
+    const conn = containerEl.createDiv({ cls: "okvault-conn-settings" });
+    // Team settings first: the connections helper prefills from its draft.
+    void this.team.display(containerEl.createDiv({ cls: "okvault-team-settings" })).then(() => this.connections.display(conn));
   }
 }

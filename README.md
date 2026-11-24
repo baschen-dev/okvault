@@ -88,6 +88,8 @@ review_interval: 180d
 
 Each person who wants ticket details sets `JIRA_API_TOKEN`, plus `JIRA_EMAIL` on Jira Cloud. Without them the token is sent as a Data Center personal access token, and with no token at all `kb_ticket` still returns the vault's notes. okvault only reads from Jira.
 
+`okvault connections` checks what this machine's credentials reach. For Jira, it shows the site, where the credentials came from, who you are signed in as, and the projects you can see; `--jira-url` tries a site before it is in `.okvault.yaml`. For GitHub and git, it shows the repository, the API token source (`GH_TOKEN`, `GITHUB_TOKEN` or the GitHub CLI), whether you can push, and a `git push --dry-run` that tests git's own credentials without sending anything. It names credential sources, never their values. The Obsidian plugin runs the same check from its settings, and offers the Jira projects as a checklist.
+
 The loop an agent follows (it is in the server instructions):
 
 1. Starting `PROJ-123`: call `kb_ticket` and read the linked notes.
@@ -165,6 +167,8 @@ okvault review [--vault DIR] [--owner O] [--reason R] [--json]
 okvault gaps   [--vault DIR] [--limit N] [--json]  # questions agents asked that no FAQ answers
 okvault verify [--vault DIR] [--by NAME] PATH...   # default name: git config user.name
 okvault sync   [--vault DIR] [--git MODE] [--json]   # commit edits, rebase, push or update the pull request
+okvault connections [--vault DIR] [--json] [--jira-url URL] [--jira-api 2|3] [--no-push-check]
+                                                    # what this machine's Jira, GitHub and git credentials reach
 ```
 
 ## Development

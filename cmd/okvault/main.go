@@ -27,6 +27,7 @@ import (
 	"github.com/baschen-dev/okvault/internal/gitsync"
 	"github.com/baschen-dev/okvault/internal/search"
 	"github.com/baschen-dev/okvault/internal/server"
+	"github.com/baschen-dev/okvault/internal/tracker"
 	"github.com/baschen-dev/okvault/internal/vault"
 )
 
@@ -48,6 +49,8 @@ Usage:
   okvault gaps   [--vault DIR] [--limit N] [--json] [--gaps FILE]           questions agents asked that no FAQ answers
   okvault verify [--vault DIR] [--by NAME] PATH...                          mark notes checked by a person
   okvault sync   [--vault DIR] [--git MODE] [--json]                        commit edits, rebase, push / update the PR
+  okvault connections [--vault DIR] [--json] [--jira-url URL] [--jira-api 2|3] [--no-push-check]
+                                                what this machine's Jira and GitHub credentials reach
   okvault version
 
 Jira credentials (for ticket / kb_ticket): JIRA_API_TOKEN, plus JIRA_EMAIL on Jira Cloud.
@@ -86,6 +89,8 @@ func main() {
 		err = review(args, os.Stdout)
 	case "gaps":
 		err = gapsCmd(args, os.Stdout)
+	case "connections":
+		err = connectionsCmd(args, os.Stdout)
 	case "verify":
 		err = verify(args, os.Stdout)
 	case "sync":
@@ -471,6 +476,81 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// Connections is what `okvault connections` reports.
+type Connections struct {
+	Jira    *tracker.Check      `json:"jira,omitempty"` // nil: no tracker URL configured or given
+	GitMode string              `json:"git_mode"`
+	GitHub  gitsync.GitHubCheck `json:"github"`
+}
+
+// connectionsCmd checks the credentials this machine gives okvault (Jira from
+// JIRA_API_TOKEN/JIRA_EMAIL; GitHub from GH_TOKEN, GITHUB_TOKEN or the GitHub
+// CLI; git from its credential helper or SSH agent) and lists Jira projects.
+// It reports where credentials come from, never their values.
+func connectionsCmd(args []string, w io.Writer) error {
+	fs := flag.NewFlagSet("connections", flag.ExitOnError)
+	dir := fs.String("vault", defaultVault(), "vault directory")
+	asJSON := fs.Bool("json", false, "print JSON")
+	jiraURL := fs.String("jira-url", "", "check this Jira site instead of tracker.url from "+config.File)
+	jiraAPI := fs.String("jira-api", "", "Jira REST API version, 2 or 3 (default: as okvault picks it)")
+	noPush := fs.Bool("no-push-check", false, "skip the git push --dry-run")
+	_ = fs.Parse(args)
+	cfg, err := config.Load(*dir)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	out := Connections{GitMode: cfg.Git.Mode}
+	u, api := strings.TrimSpace(*jiraURL), strings.TrimSpace(*jiraAPI)
+	if u == "" {
+		u = cfg.Tracker.URL
+		if api == "" {
+			api = cfg.Tracker.API
+		}
+	}
+	if u != "" {
+		c := tracker.CheckJira(ctx, u, api, os.Getenv, nil)
+		out.Jira = &c
+	}
+	out.GitHub = gitsync.CheckGitHub(ctx, *dir, gitsync.CheckOptions{Remote: cfg.Git.Remote, Env: os.Getenv, PushTest: !*noPush})
+	if *asJSON {
+		return printJSON(w, out)
+	}
+	if j := out.Jira; j == nil {
+		fmt.Fprintf(w, "Jira:   no tracker.url in %s (or pass --jira-url)\n", config.File)
+	} else {
+		fmt.Fprintf(w, "Jira:   %s (REST %s), credentials: %s\n", j.URL, j.API, j.Credentials)
+		if j.User != "" {
+			fmt.Fprintf(w, "        signed in as %s; %d projects\n", j.User, len(j.Projects))
+			for _, p := range j.Projects {
+				fmt.Fprintf(w, "          %-12s %s\n", p.Key, p.Name)
+			}
+		}
+		if j.Problem != "" {
+			fmt.Fprintf(w, "        problem: %s\n", j.Problem)
+		}
+	}
+	g := out.GitHub
+	fmt.Fprintf(w, "Git:    mode %s, remote %s %s\n", out.GitMode, g.RemoteName, g.Remote)
+	if g.Problem != "" {
+		fmt.Fprintf(w, "        problem: %s\n", g.Problem)
+	}
+	if g.Push != "" {
+		fmt.Fprintf(w, "        push: %s\n", g.Push)
+	}
+	if g.Repo != "" {
+		fmt.Fprintf(w, "GitHub: %s, token: %s", g.Repo, g.Token)
+		if g.User != "" {
+			fmt.Fprintf(w, ", signed in as %s", g.User)
+		}
+		fmt.Fprintln(w)
+	}
+	if g.APIProblem != "" {
+		fmt.Fprintf(w, "        %s\n", g.APIProblem)
+	}
+	return nil
 }
 
 // openGaps opens the knowledge-gaps log: file, or the per-machine default for

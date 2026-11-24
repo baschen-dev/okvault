@@ -84,7 +84,7 @@ export class Setting {
   }
   addButton(cb: Cb<any>) {
     const b = this.controlEl.createEl("button") as HTMLButtonElement;
-    const o: any = { setButtonText: (t: string) => ((b.textContent = t), o), setCta: () => (b.addClass("mod-cta"), o), onClick: (f: () => void) => (b.addEventListener("click", f), o) };
+    const o: any = { buttonEl: b, setButtonText: (t: string) => ((b.textContent = t), o), setCta: () => (b.addClass("mod-cta"), o), onClick: (f: () => void) => (b.addEventListener("click", f), o) };
     cb(o); return this;
   }
   addExtraButton(cb: Cb<any>) {
