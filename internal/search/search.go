@@ -51,6 +51,7 @@ type faqEntry struct {
 	Question string
 	norm     string
 	tokens   map[string]bool
+	draft    bool // status: draft; never a confident answer, still the nearest FAQ
 }
 
 func newMapping() mapping.IndexMapping {
@@ -106,10 +107,12 @@ func (ix *Index) Rebuild(s *vault.Snapshot) error {
 		}); err != nil {
 			return err
 		}
-		if IsFAQ(c) {
+		// Deprecated FAQs answer nothing; drafts are not answers yet (an
+		// answer still being written must not reach agents as one).
+		if st := strings.ToLower(c.Status); IsFAQ(c) && st != "deprecated" {
 			for _, q := range append([]string{c.Title}, c.Aliases...) {
 				if n := normalize(q); n != "" {
-					faq = append(faq, faqEntry{Path: p, Question: q, norm: n, tokens: terms(q)})
+					faq = append(faq, faqEntry{Path: p, Question: q, norm: n, tokens: terms(q), draft: st == "draft"})
 				}
 			}
 		}
@@ -298,6 +301,7 @@ func (ix *Index) Ask(question string) (*Answer, error) {
 			dice, cov = overlap(qt, f.tokens)
 			ok = dice >= Threshold && cov >= MinCoverage
 		}
+		ok = ok && !f.draft
 		if (ok && !bestOK) || (ok == bestOK && dice > bestScore) {
 			best, bestScore, bestOK = f, dice, ok
 		}
@@ -440,3 +444,17 @@ func normOwners(in []string) []string {
 	}
 	return out
 }
+
+// Normalize lower-cases s and keeps only letters and digits, single-spaced: the
+// form kb_ask compares FAQ titles and aliases in.
+func Normalize(s string) string { return normalize(s) }
+
+// Similarity is the Dice overlap of the analysed terms of a and b (0..1), the
+// measure kb_ask matches questions with.
+func Similarity(a, b string) float64 {
+	d, _ := overlap(terms(a), terms(b))
+	return d
+}
+
+// HasTerms reports whether s has any content terms once stop words are dropped.
+func HasTerms(s string) bool { return len(terms(s)) > 0 }

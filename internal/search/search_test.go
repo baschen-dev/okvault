@@ -124,3 +124,27 @@ func TestAskRejectsPartialMatches(t *testing.T) {
 		t.Errorf("short exact-ish question should match: %+v", a)
 	}
 }
+
+func TestAskSkipsDraftAndDeprecatedFAQs(t *testing.T) {
+	ix := build(t, map[string]string{
+		"faq/token.md":  "---\ntype: FAQ\ntitle: How do we rotate the Jira token?\nstatus: draft\n---\nAnswer in a few lines.\n",
+		"faq/old.md":    "---\ntype: FAQ\ntitle: How do we deploy to the old cluster?\nstatus: deprecated\n---\nDo not.\n",
+		"faq/stable.md": "---\ntype: FAQ\ntitle: How do we release?\n---\nTag and push.\n",
+	})
+	a, err := ix.Ask("How do we rotate the Jira token?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Confident || a.Answer != "" {
+		t.Fatalf("a draft answered: %+v", a)
+	}
+	if a.Path != "faq/token.md" || a.Confidence < 0.99 {
+		t.Errorf("the draft should still be the nearest FAQ: %+v", a)
+	}
+	if a, _ := ix.Ask("How do we deploy to the old cluster?"); a.Confident || a.Path == "faq/old.md" {
+		t.Errorf("a deprecated FAQ matched: %+v", a)
+	}
+	if a, _ := ix.Ask("how do we release"); !a.Confident {
+		t.Errorf("stable FAQ: %+v", a)
+	}
+}

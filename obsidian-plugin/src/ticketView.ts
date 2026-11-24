@@ -1,7 +1,8 @@
-import { ItemView, Notice, TFile, WorkspaceLeaf, normalizePath, setIcon } from "obsidian";
+import { ItemView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import type { Entry, Hit, TicketContext } from "./client";
 import type OkvaultPlugin from "./main";
-import { folderFor, kebab, normalizeKey, ticketsOf } from "./noteFacts";
+import { folderFor, kebab, normalizeKey, notePath, ticketsOf } from "./noteFacts";
+import { Template, createNote, templates } from "./notes";
 
 export const TICKET_VIEW = "okvault-ticket";
 
@@ -207,7 +208,7 @@ export class TicketView extends ItemView {
     const suggest = () => {
       const t = templates.find((x) => x.path === sel.value);
       if (t && !folder.dataset.touched) folder.value = folderFor(t.type, this.plugin.localNotes());
-      target.setText(`→ ${this.targetPath(folder.value, title.value) ?? "…"}`);
+      target.setText(`→ ${notePath(folder.value, title.value) ?? "…"}`);
     };
     sel.addEventListener("change", suggest);
     title.addEventListener("input", suggest);
@@ -225,15 +226,10 @@ export class TicketView extends ItemView {
     if (!templates.length) card.createDiv({ cls: "okvault-muted", text: "No templates in _templates/: the note starts from plain frontmatter." });
   }
 
-  /** Templates from the vault's _templates folder, with the type each declares. */
-  private templates(): { path: string; label: string; type: string }[] {
-    const dir = this.plugin.toObsidian("_templates");
-    const out = this.app.vault
-      .getMarkdownFiles()
-      .filter((f) => f.parent?.path === dir)
-      .map((f) => ({ path: f.path, label: f.basename, type: String(this.app.metadataCache.getFileCache(f)?.frontmatter?.type ?? f.basename) }));
+  /** Templates, the usual outcomes of a ticket first. */
+  private templates(): Template[] {
+    const out = templates(this.plugin);
     if (!out.length) out.push({ path: "", label: "Note", type: "Reference" });
-    // The usual outcomes of a ticket first.
     const rank = (t: string) => {
       const i = ["Decision", "FAQ", "Playbook"].indexOf(t);
       return i < 0 ? 9 : i;
@@ -241,41 +237,24 @@ export class TicketView extends ItemView {
     return out.sort((a, b) => rank(a.type) - rank(b.type) || a.label.localeCompare(b.label));
   }
 
-  private targetPath(folder: string, title: string): string | null {
-    const name = kebab(title);
-    if (!name) return null;
-    const f = folder.trim().replace(/^\/+|\/+$/g, "");
-    return f ? `${f}/${name}.md` : `${name}.md`;
-  }
-
-  private async create(t: { path: string; type: string }, title: string, folder: string): Promise<void> {
-    const rel = this.targetPath(folder, title)!;
-    const path = normalizePath(this.plugin.toObsidian(rel));
-    if (this.app.vault.getAbstractFileByPath(path)) {
-      new Notice(`okvault: ${rel} already exists; open it and add ${this.key} to its tickets instead.`);
+  private async create(t: Template, title: string, folder: string): Promise<void> {
+    const key = this.key;
+    const r = await createNote(this.plugin, {
+      template: t,
+      title,
+      folder,
+      edit: (fm) => {
+        const list = ticketsOf(fm);
+        if (!list.includes(key)) list.push(key);
+        fm.tickets = list;
+      },
+    });
+    if (!r.file) {
+      new Notice(`okvault: ${r.error}${r.error?.endsWith("exists") ? `; open it and add ${key} to its tickets instead` : ""}.`);
       return;
     }
-    let text = `---\ntype: ${t.type}\ntitle: ""\n---\n\n`;
-    const tf = t.path ? this.app.vault.getAbstractFileByPath(t.path) : null;
-    if (tf instanceof TFile) text = await this.app.vault.read(tf);
-    // Templates use {{title}} (the FAQ template adds the question mark itself):
-    // escaped inside the YAML frontmatter, as typed in the body.
-    const q = t.type.toLowerCase() === "faq" ? title.replace(/\?+$/, "") : title;
-    const end = text.startsWith("---") ? text.indexOf("\n---", 3) : -1;
-    const yamlPart = end > 0 ? text.slice(0, end) : "";
-    const yamlSafe = q.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    text = yamlPart.replace(/\{\{title\}\}/g, () => yamlSafe) + text.slice(yamlPart.length).replace(/\{\{title\}\}/g, () => q);
-    const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    if (dir && !this.app.vault.getAbstractFileByPath(dir)) await this.app.vault.createFolder(dir);
-    const file = await this.app.vault.create(path, text);
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      const list = ticketsOf(fm);
-      if (!list.includes(this.key)) list.push(this.key);
-      fm.tickets = list;
-      if (!fm.title) fm.title = title;
-    });
-    await this.app.workspace.getLeaf("tab").openFile(file);
-    new Notice(`okvault: created ${rel}, linked to ${this.key}`);
+    await this.app.workspace.getLeaf("tab").openFile(r.file);
+    new Notice(`okvault: created ${r.rel}, linked to ${key}`);
   }
 
   // ---- the index: tickets the vault documents ----

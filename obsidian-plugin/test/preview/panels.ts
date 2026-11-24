@@ -5,6 +5,7 @@ type TFile = RealTFile;
 import { OkvaultClient } from "../../src/client";
 import { InspectorView } from "../../src/inspectorView";
 import { TicketView } from "../../src/ticketView";
+import { GapsView } from "../../src/gapsView";
 import { lintVault } from "./server-browser";
 
 type Note = { path: string; title: string; type: string; fm: Record<string, unknown>; links: string[]; broken: number };
@@ -61,4 +62,7 @@ const insp = new InspectorView({ app, el: document.getElementById("bundle")! } a
 const ticket = new TicketView({ app, el: document.getElementById("faq")! } as any, plugin);
 await insp.onOpen();
 await ticket.onOpen();
+const gaps = new GapsView({ app, el: document.getElementById("team")! } as any, plugin);
+await gaps.onOpen();
+(window as any).gaps = gaps;
 (window as any).ticket = ticket;

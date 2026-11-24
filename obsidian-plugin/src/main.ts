@@ -6,6 +6,7 @@ import { FAQ_VIEW, FaqView } from "./faqView";
 import { Finding, OkvaultProcess, lintVault, syncNow, verifyNote } from "./server";
 import { INSPECTOR_VIEW, InspectorView } from "./inspectorView";
 import { TICKET_VIEW, TicketView } from "./ticketView";
+import { GAPS_VIEW, GapsView } from "./gapsView";
 import { TICKET_KEY, isProjectKey, normalizeKey, ticketKeyAt } from "./noteFacts";
 import { TEAM_VIEW, TeamView } from "./teamView";
 import { DEFAULT_SETTINGS, OkvaultSettingTab, OkvaultSettings } from "./settings";
@@ -74,12 +75,14 @@ export default class OkvaultPlugin extends Plugin {
     this.registerView(TEAM_VIEW, (leaf) => new TeamView(leaf, this));
     this.registerView(INSPECTOR_VIEW, (leaf) => new InspectorView(leaf, this));
     this.registerView(TICKET_VIEW, (leaf) => new TicketView(leaf, this));
+    this.registerView(GAPS_VIEW, (leaf) => new GapsView(leaf, this));
 
     this.addRibbonIcon("message-circle-question", "okvault: ask the FAQ", () => this.openFaq());
     this.addRibbonIcon("orbit", "okvault: bundle map", () => this.openBundle());
     this.addRibbonIcon("git-pull-request", "okvault: versioning and review", () => this.openTeam());
     this.addRibbonIcon("shield-check", "okvault: note inspector", () => this.openInspector());
     this.addRibbonIcon("ticket", "okvault: ticket workspace", () => this.openTicket());
+    this.addRibbonIcon("circle-help", "okvault: knowledge gaps", () => this.openGaps());
 
     this.addCommand({ id: "ask", name: "Ask the FAQ", callback: () => this.openFaq() });
     this.addCommand({
@@ -94,6 +97,7 @@ export default class OkvaultPlugin extends Plugin {
     this.addCommand({ id: "team", name: "Open versioning and review", callback: () => this.openTeam() });
     this.addCommand({ id: "inspector", name: "Open the note inspector", callback: () => this.openInspector() });
     this.addCommand({ id: "tickets", name: "Open the ticket workspace", callback: () => this.openTicket() });
+    this.addCommand({ id: "gaps", name: "Open knowledge gaps (questions no FAQ answers)", callback: () => this.openGaps() });
     this.addCommand({
       id: "ticket-at-cursor",
       name: "Open the ticket under the cursor",
@@ -497,6 +501,10 @@ export default class OkvaultPlugin extends Plugin {
     else view.focus();
   }
 
+  async openGaps(): Promise<void> {
+    await this.revealView(GAPS_VIEW, "right");
+  }
+
   async openInspector(): Promise<void> {
     await this.revealView(INSPECTOR_VIEW, "right");
   }
@@ -573,6 +581,7 @@ export default class OkvaultPlugin extends Plugin {
   }
 
   refreshViews(): void {
+    for (const l of this.app.workspace.getLeavesOfType(GAPS_VIEW)) void (l.view as GapsView).reload();
     for (const l of this.app.workspace.getLeavesOfType(INSPECTOR_VIEW)) (l.view as InspectorView).refresh();
     for (const l of this.app.workspace.getLeavesOfType(TEAM_VIEW)) void (l.view as TeamView).reload();
     for (const l of this.app.workspace.getLeavesOfType(FAQ_VIEW)) (l.view as FaqView).refresh();

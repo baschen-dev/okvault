@@ -120,3 +120,50 @@ export function ticketsOf(fm: Record<string, unknown> | undefined): string[] {
 export function shortDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * Fills a _templates note: {{title}} is escaped inside the YAML frontmatter and
+ * kept as typed in the body. The FAQ template adds the question mark itself.
+ */
+export function fillTemplate(text: string, type: string, title: string): string {
+  const q = type.toLowerCase() === "faq" ? title.replace(/\?+$/, "") : title;
+  const end = text.startsWith("---") ? text.indexOf("\n---", 3) : -1;
+  const yamlPart = end > 0 ? text.slice(0, end) : "";
+  const yamlSafe = q.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return yamlPart.replace(/\{\{title\}\}/g, () => yamlSafe) + text.slice(yamlPart.length).replace(/\{\{title\}\}/g, () => q);
+}
+
+/** folder + kebab-case title + .md, or null when the title has no usable characters. */
+export function notePath(folder: string, title: string): string | null {
+  const name = kebab(title);
+  if (!name) return null;
+  const f = folder.trim().replace(/^\/+|\/+$/g, "");
+  return f ? `${f}/${name}.md` : `${name}.md`;
+}
+
+/** A relative Markdown link from one vault path to another (OKF style, no wikilinks). */
+export function relativeLink(from: string, to: string): string {
+  const a = from.split("/").slice(0, -1);
+  const b = to.split("/");
+  let i = 0;
+  while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
+  const up = a.length - i;
+  const rel = [...Array(up).fill(".."), ...b.slice(i)].join("/");
+  return up ? rel : `./${rel}`;
+}
+
+/** Existing aliases plus new phrasings, without duplicates of each other or of the title (case, punctuation ignored). */
+export function mergeAliases(existing: unknown, add: string[], title: string): string[] {
+  const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const cur = Array.isArray(existing) ? existing.map(String) : typeof existing === "string" && existing ? [existing] : [];
+  const seen = new Set([norm(title), ...cur.map(norm)]);
+  const out = [...cur];
+  for (const p of add) {
+    const n = norm(p);
+    if (n && !seen.has(n)) {
+      seen.add(n);
+      out.push(p);
+    }
+  }
+  return out;
+}
