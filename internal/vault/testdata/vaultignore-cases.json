@@ -1,0 +1,41 @@
+{
+  "comment": "Shared by the Go matcher (internal/vault/ignore_test.go) and the Obsidian plugin's (obsidian-plugin/test/run.ts), so the two never disagree.",
+  "groups": [
+    {
+      "rules": "# drafts anywhere\ndrafts/\n*.tmp.md\n/archive\nnotes/**/scratch-*.md\n!notes/keep/scratch-keep.md\nprivate/**\n!private/public.md\n\\windows\\style.md\nlog?.md",
+      "cases": [
+        { "path": "drafts", "dir": true, "ignored": true },
+        { "path": "drafts/a.md", "dir": false, "ignored": true },
+        { "path": "faq/drafts/a.md", "dir": false, "ignored": true },
+        { "path": "drafts.md", "dir": false, "ignored": false },
+        { "path": "faq/x.tmp.md", "dir": false, "ignored": true },
+        { "path": "faq/x.md", "dir": false, "ignored": false },
+        { "path": "archive/old.md", "dir": false, "ignored": true },
+        { "path": "archive", "dir": true, "ignored": true },
+        { "path": "faq/archive/old.md", "dir": false, "ignored": false },
+        { "path": "notes/scratch-1.md", "dir": false, "ignored": true },
+        { "path": "notes/a/b/scratch-2.md", "dir": false, "ignored": true },
+        { "path": "notes/keep/scratch-keep.md", "dir": false, "ignored": false },
+        { "path": "notes/a/real.md", "dir": false, "ignored": false },
+        { "path": "private/secret.md", "dir": false, "ignored": true },
+        { "path": "private/public.md", "dir": false, "ignored": false },
+        { "path": "windows/style.md", "dir": false, "ignored": true },
+        { "path": "logs.md", "dir": false, "ignored": true },
+        { "path": "log.md", "dir": false, "ignored": false },
+        { "path": "", "dir": true, "ignored": false }
+      ]
+    },
+    {
+      "rules": "big-folder\n!big-folder/one.md",
+      "cases": [
+        { "path": "big-folder/one.md", "dir": false, "ignored": true },
+        { "path": "big-folder", "dir": true, "ignored": true },
+        { "path": "x/big-folder", "dir": false, "ignored": true }
+      ]
+    },
+    {
+      "rules": "",
+      "cases": [{ "path": "anything.md", "dir": false, "ignored": false }]
+    }
+  ]
+}

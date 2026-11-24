@@ -58,6 +58,7 @@ type Snapshot struct {
 	Revisions   map[string]string      // note path -> revision of its bytes on disk
 	Tickets     map[string][]TicketRef // ticket key -> related notes, linked first
 	NoteTickets map[string][]string    // note path -> ticket keys (linked and mentioned)
+	Ignore      *Ignore                // rules from .vaultignore (never nil)
 }
 
 // Owners returns a note's owners: its `owners` frontmatter, else the folder
@@ -155,22 +156,27 @@ func (v *Vault) Reload() (*Snapshot, error) {
 		}
 	}
 	s.Config = cfg
+	ig, err := LoadIgnore(v.Root)
+	if err != nil {
+		s.Issues = append(s.Issues, Issue{Path: IgnoreFile, Message: err.Error()})
+	}
+	s.Ignore = ig
 	raw := map[string][]okf.Link{}
 	err = filepath.WalkDir(v.Root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+		rel, _ := filepath.Rel(v.Root, p)
+		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
-			if p != v.Root && skipDir(d.Name()) {
+			if p != v.Root && (skipDir(d.Name()) || ig.Match(rel, true)) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !strings.EqualFold(filepath.Ext(p), ".md") || okf.IsReserved(d.Name()) {
+		if !strings.EqualFold(filepath.Ext(p), ".md") || okf.IsReserved(d.Name()) || ig.Match(rel, false) {
 			return nil
 		}
-		rel, _ := filepath.Rel(v.Root, p)
-		rel = filepath.ToSlash(rel)
 		src, err := os.ReadFile(p)
 		if err != nil {
 			s.Issues = append(s.Issues, Issue{Path: rel, Message: err.Error()})
@@ -219,7 +225,8 @@ func (v *Vault) Reload() (*Snapshot, error) {
 				target = byName[strings.ToLower(strings.TrimSuffix(l.Target, ".md"))]
 			}
 			if _, ok := s.Concepts[target]; !ok || target == "" {
-				if !isReservedPath(target) {
+				// a link into an ignored file points at something real, just not indexed
+				if !isReservedPath(target) && !(target != "" && ig.Match(target, false)) {
 					s.Broken[src] = append(s.Broken[src], l.Target)
 				}
 				continue
@@ -375,6 +382,9 @@ func (v *Vault) Write(req WriteRequest, now time.Time) (*WriteResult, error) {
 	rel, err := CleanPath(req.Path)
 	if err != nil {
 		return nil, err
+	}
+	if snap := v.Snapshot(); snap != nil && snap.Ignore.Match(rel, false) {
+		return nil, fmt.Errorf("%w: %s is excluded by %s", ErrInvalidPath, rel, IgnoreFile)
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()

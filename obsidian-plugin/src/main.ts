@@ -10,6 +10,7 @@ import { GAPS_VIEW, GapsView } from "./gapsView";
 import { TICKET_KEY, isProjectKey, normalizeKey, ticketKeyAt } from "./noteFacts";
 import { TEAM_VIEW, TeamView } from "./teamView";
 import { DEFAULT_SETTINGS, OkvaultSettingTab, OkvaultSettings } from "./settings";
+import { IGNORE_FILE, VaultIgnore, normalizeRoot } from "./paths";
 
 export interface LocalNote extends NoteInput {
   aliases: string[];
@@ -65,6 +66,9 @@ export default class OkvaultPlugin extends Plugin {
     running: false,
   };
   private lintAgain = false;
+  /** Rules from the okvault root's .vaultignore; ignored files are left out of every view. */
+  ignore = new VaultIgnore();
+  private ignoreText = "";
 
   override async onload(): Promise<void> {
     await this.loadSettings();
@@ -162,15 +166,23 @@ export default class OkvaultPlugin extends Plugin {
     this.updateStatusBar();
 
     this.app.workspace.onLayoutReady(async () => {
+      await this.loadIgnore();
       await this.loadTeamGit();
       await this.connect(false);
       await this.refreshGit();
     });
     // okvault syncs in the background; show what it last reported.
-    this.registerInterval(window.setInterval(() => void this.refreshGit(), 30_000));
+    // Obsidian sends no events for dotfiles it does not index, so .vaultignore is re-read here too.
+    this.registerInterval(
+      window.setInterval(() => {
+        void this.refreshGit();
+        void this.loadIgnore().then((changed) => changed && this.refreshViews());
+      }, 30_000),
+    );
     this.registerEvent(
       this.app.vault.on("modify", (f) => {
         if (f.path === this.toObsidian(".okvault.yaml")) void this.loadTeamGit().then(() => this.refreshViews());
+        if (f.path === this.toObsidian(IGNORE_FILE)) void this.loadIgnore().then(() => this.refreshViews());
       }),
     );
   }
@@ -181,6 +193,23 @@ export default class OkvaultPlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // Older versions saved "." or "/" as is; those mean the vault root.
+    this.settings.vaultFolder = normalizeRoot(this.settings.vaultFolder) ?? "";
+  }
+
+  /** Re-reads .vaultignore at the okvault root; true when its rules changed. */
+  async loadIgnore(): Promise<boolean> {
+    let text = "";
+    try {
+      const p = this.toObsidian(IGNORE_FILE);
+      if (await this.app.vault.adapter.exists(p)) text = await this.app.vault.adapter.read(p);
+    } catch {
+      text = "";
+    }
+    if (text === this.ignoreText) return false;
+    this.ignoreText = text;
+    this.ignore = new VaultIgnore(text);
+    return true;
   }
 
   async saveSettings(): Promise<void> {
@@ -191,6 +220,10 @@ export default class OkvaultPlugin extends Plugin {
       prev?.versioning !== this.settings.versioning ||
       prev?.binaryPath !== this.settings.binaryPath ||
       prev?.vaultFolder !== this.settings.vaultFolder;
+    if (prev?.vaultFolder !== this.settings.vaultFolder) {
+      // .vaultignore lives at the okvault root, which just moved.
+      void this.loadIgnore().then(() => this.refreshViews());
+    }
     if (this.proc.running && flagsChanged) {
       this.proc.stop();
       this.proc.exitInfo = "";
@@ -270,7 +303,7 @@ export default class OkvaultPlugin extends Plugin {
       const paths = await this.client.paths();
       const local = new Set(this.localNotes().map((n) => n.path));
       if (paths.length && !paths.some((p) => local.has(p))) {
-        this.lastError = `the server at ${this.settings.serverUrl} serves a different vault (check the URL or the okvault folder setting)`;
+        this.lastError = `the server at ${this.settings.serverUrl} serves a different vault (check the URL or the okvault root setting)`;
         return this.setState("offline");
       }
     } catch (e) {
@@ -435,7 +468,7 @@ export default class OkvaultPlugin extends Plugin {
     this.statusBar.toggleClass("has-problem", !!g?.problem);
   }
 
-  // ---- paths: okvault paths are relative to the okvault folder ----
+  // ---- paths: okvault paths are relative to the okvault root ----
 
   toObsidian(p: string): string {
     return this.settings.vaultFolder ? `${this.settings.vaultFolder}/${p}` : p;
@@ -451,7 +484,7 @@ export default class OkvaultPlugin extends Plugin {
     const p = this.toObsidian(okPath);
     const file = this.app.vault.getAbstractFileByPath(p);
     if (!(file instanceof TFile)) {
-      new Notice(`okvault: ${p} is not in this vault. Check the "okvault folder" setting.`);
+      new Notice(`okvault: ${p} is not in this vault. Check the "okvault root" setting.`);
       return;
     }
     const leaf = newLeaf ? this.app.workspace.getLeaf("tab") : this.mainLeaf();
@@ -471,12 +504,12 @@ export default class OkvaultPlugin extends Plugin {
     const out: LocalNote[] = [];
     for (const file of this.app.vault.getMarkdownFiles()) {
       const p = this.fromObsidian(file.path);
-      if (p === null) continue;
+      if (p === null || this.ignore.match(p)) continue;
       const fm = mc.getFileCache(file)?.frontmatter ?? {};
       const links: string[] = [];
       for (const target of Object.keys(mc.resolvedLinks[file.path] ?? {})) {
         const t = this.fromObsidian(target);
-        if (t !== null && t.endsWith(".md")) links.push(t);
+        if (t !== null && t.endsWith(".md") && !this.ignore.match(t)) links.push(t);
       }
       out.push({
         path: p,

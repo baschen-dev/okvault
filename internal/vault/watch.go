@@ -86,8 +86,8 @@ func relevant(root, p string) bool {
 	if err != nil {
 		return false
 	}
-	if filepath.ToSlash(rel) == config.File {
-		return true // team config: ticket projects and owners change what is indexed
+	if r := filepath.ToSlash(rel); r == config.File || r == IgnoreFile {
+		return true // team config and ignore rules change what is indexed
 	}
 	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
 		if strings.HasPrefix(seg, ".") || strings.HasPrefix(seg, "_") {

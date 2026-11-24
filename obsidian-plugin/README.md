@@ -7,7 +7,8 @@ An Obsidian plugin that shows the vault the way okvault's agents see it.
   - Each section (top-level folder) is an arc around a circle, and each concept is a dot coloured by its `type`.
   - Links between notes curve through their sections' anchors, so links between the same two sections run together.
   - A ring marks a note that needs a person: broken links, stale, agent edit not yet verified, draft, or no owner. These are `kb_review`'s reasons.
-  - Hover a note to see its links. Click a note to open it, or click a section to focus it. Type chips hide or show types.
+  - Hover a note to see its links. Click a note to open it, or click a section to focus it.
+  - Type and section chips filter the map. A filtered-out note leaves the map completely: its dot, its links, its place on the circle, and an emptied section's arc and table row. The remaining notes spread over the whole circle, and colours stay the same. *Show all* clears the filters. Filters are saved with the plugin's settings.
   - The table under the map lists the same data per section.
 
 - **Versioning and review** (right sidebar, or click `okvault ●` in the status bar). This panel shows:
@@ -69,7 +70,11 @@ The plugin talks to `http://127.0.0.1:8766/mcp` by default. That is deliberately
 - **Versioning** (setting, default *Follow .okvault.yaml*). The server follows the team's `git` settings: it keeps `index.md` files current as you edit, commits your edits after `commit_edits` of quiet, and rebases, pushes and opens the pull request in push and pr mode. With git off in `.okvault.yaml` it commits nothing. *Off* starts it `--read-only --git off` instead.
 - **Your own server.** Point *Server URL* at a server you run, for example the one Claude Code uses (`http://127.0.0.1:8765/mcp`). The plugin connects to it and does not start another. Writes and git sync then follow that server's flags.
 
-After connecting, the plugin checks that the server serves this vault; if none of its notes exist here it reports "serves a different vault" and stays offline. If you opened the repository root as the Obsidian vault rather than `vault/`, set **okvault folder** to `vault`.
+After connecting, the plugin checks that the server serves this vault; if none of its notes exist here it reports "serves a different vault" and stays offline. If you opened the repository root as the Obsidian vault rather than `vault/`, set **okvault root** to `vault`.
+
+**okvault root** (setting) is the okvault folder, always relative to the Obsidian vault. Empty, `.` and `/` all mean the vault itself, which is the default. `./docs/kb/` and `docs\kb` both mean `docs/kb`. A path that leaves the vault (`..`) is refused. Notes outside the root are left out of every view, and the root's `.okvault.yaml` and `.vaultignore` are the ones used.
+
+**`.vaultignore`** at the okvault root lists files the server does not index (see [Vault layout](../README.md#vault-layout)). The plugin applies the same rules, so ignored notes are missing from the bundle map, the FAQ and the inspector as well. Obsidian sends no events for dotfiles, so the plugin reads the file again every 30 seconds, and also when you press refresh on the bundle map.
 
 ## Obsidian Git
 

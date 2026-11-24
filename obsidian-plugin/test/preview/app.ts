@@ -18,7 +18,9 @@ const app = {
 };
 const plugin: any = {
   client: new OkvaultClient("/mcp", fetchPost),
-  settings: { serverUrl: "/mcp" },
+  settings: { serverUrl: "/mcp", graphHiddenTypes: [], graphHiddenSections: [] },
+  saveSettings: async () => {},
+  loadIgnore: async () => false,
   lastError: "",
   ensureConnected: async () => plugin.client.ping(),
   connect: async () => plugin.client.ping(),

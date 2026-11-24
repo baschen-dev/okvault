@@ -137,6 +137,7 @@ Details that matter in a team:
 vault/
   .obsidian/            committed settings: markdown links, relative paths, templates
   .okvault.yaml         team settings: tracker, project keys, owners, review interval
+  .vaultignore          files and folders okvault leaves out (optional, .gitignore syntax)
   _templates/           Obsidian templates (FAQ, Concept, Decision; not indexed)
   index.md              generated OKF index (root carries okf_version)
   log.md                OKF change log, newest first
@@ -148,6 +149,19 @@ Note rules are in [vault/conventions/note-format.md](vault/conventions/note-form
 - `type` is required. `title`, `description` and `tags` are recommended.
 - Use kebab-case file names.
 - Link with relative Markdown links (`[x](../reference/x.md)`).
+
+Folders starting with `.` or `_` are never indexed. To leave out anything else, such as scratch notes, an archive, or another tool's folder, list it in `.vaultignore` at the vault root. It uses a subset of `.gitignore` syntax:
+
+```
+# not knowledge
+scratch/              a folder, at any depth
+/archive              anchored at the vault root
+*.wip.md              a file pattern, at any depth
+notes/**/draft-*.md   ** spans folders
+!notes/keep/draft-ok.md  re-include (not inside an ignored folder)
+```
+
+Ignored files are not searched, listed, linked or written: `kb_write` refuses a path the file excludes. A link into an ignored file is not reported as broken. okvault picks up changes to `.vaultignore` while `serve` runs. The Obsidian plugin applies the same rules to its views.
 
 okvault only rewrites an `index.md` that carries the `<!-- okvault:generated -->` marker. A hand-written index is left alone.
 
