@@ -19,8 +19,16 @@ The question is compared with every FAQ question (title and aliases).
 The coverage rule stops a short FAQ such as "What is okvault?" from
 answering "What is the okvault license?".
 
+Only FAQs that are ready count. An FAQ with `status: draft` never answers
+confidently, though it can still show as the nearest FAQ. A `deprecated` FAQ is
+ignored.
+
 When not confident, `kb_ask` returns `confident: false` with the five best
 BM25 hits, so the agent can read them with `kb_get`.
+
+When not confident, `kb_ask` also notes the question on this machine.
+`kb_gaps`, `okvault gaps`, and the Obsidian plugin's knowledge gaps panel list
+those questions, so someone can write the missing FAQ.
 
 To make a question hit reliably, add the phrasing people actually use to the
 note's `aliases`. See [Search ranking](../reference/search-ranking.md).

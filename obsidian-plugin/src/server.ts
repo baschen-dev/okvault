@@ -13,6 +13,8 @@ export interface SpawnOptions {
   port: number;
   /** true: commit, push and open pull requests as .okvault.yaml says; false: read-only, git off. */
   versioning: boolean;
+  /** Knowledge-gaps log; default: okvault's per-machine file. Tests pass their own. */
+  gapsFile?: string;
 }
 
 export class OkvaultProcess {
@@ -32,6 +34,7 @@ export class OkvaultProcess {
     // Without --read-only okvault also keeps index.md files in step with edits and,
     // when .okvault.yaml turns git on, commits and syncs. --read-only turns all of that off.
     if (!o.versioning) args.push("--read-only", "--git", "off");
+    if (o.gapsFile) args.push("--gaps", o.gapsFile);
     const p = spawn(o.binary, args, { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
     this.proc = p;
     p.stderr?.on("data", (b: Buffer) => {

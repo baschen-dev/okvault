@@ -113,6 +113,27 @@ export interface TicketContext {
   hint: string;
 }
 
+/** kb_gaps */
+export interface Gap {
+  id: string;
+  question: string;
+  phrasings: string[];
+  asked: number;
+  first_asked: string;
+  last_asked: string;
+  clients?: string[];
+  nearest_faq?: { path: string; question: string; confidence: number };
+  related?: Hit[];
+}
+
+export interface GapsResult {
+  total: number;
+  gaps: Gap[];
+  answered: number;
+  dismissed: number;
+  log: string;
+}
+
 /** okvault's git sync state (gitsync.Status), from kb_review's git field or `okvault sync --json`. */
 export interface GitStatus {
   mode: string;
@@ -179,6 +200,13 @@ export class OkvaultClient {
   /** kb_ticket: the ticket from the tracker (when configured) and the notes about it. */
   async ticket(key: string): Promise<TicketContext> {
     return this.call<TicketContext>("kb_ticket", { key });
+  }
+
+  /** kb_gaps: questions agents asked that no FAQ answers confidently. dismiss hides a group. */
+  async gaps(args: { limit?: number; dismiss?: string } = {}): Promise<GapsResult> {
+    const out = await this.call<GapsResult>("kb_gaps", args);
+    out.gaps ??= [];
+    return out;
   }
 
   /** Note paths the server knows (first 200), to check it serves this vault. */

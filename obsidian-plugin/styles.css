@@ -322,3 +322,22 @@
 .okvault-record input[placeholder^="Title"] { grid-column: 1 / -1; order: -1; }
 .okvault-record button { grid-column: 1 / -1; justify-self: end; }
 .okvault-ticket-key { cursor: pointer; text-decoration: underline dotted; }
+
+/* ---------- knowledge gaps ---------- */
+
+.okvault-gaps { padding: 8px 12px; }
+.okvault-gap-q { font-weight: var(--font-semibold); flex: 1; }
+.okvault-gap-also, .okvault-gap-related { font-size: var(--font-ui-small); margin-top: 4px; }
+.okvault-gap-related a, .okvault-gap-near a { cursor: pointer; }
+.okvault-gap-near {
+  font-size: var(--font-ui-small);
+  margin-top: 6px;
+  padding: 4px 6px;
+  border-left: 3px solid #2a78d6;
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+}
+.okvault-gap-draft { border-left-color: #fab219; }
+.okvault-gap-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.okvault-gap-actions button { font-size: var(--font-ui-smaller); }
+.okvault-gaps-log { margin-top: 12px; }

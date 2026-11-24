@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/baschen-dev/okvault/internal/config"
+	"github.com/baschen-dev/okvault/internal/gaps"
 	"github.com/baschen-dev/okvault/internal/search"
 	"github.com/baschen-dev/okvault/internal/tracker"
 	"github.com/baschen-dev/okvault/internal/vault"
@@ -27,6 +28,7 @@ Lookup order:
 2. kb_search for keywords; filter by type, tags or dir. Hits are compact (path, title, description, snippet).
 3. kb_get to read one note in full, with its outgoing links and backlinks.
 kb_list shows what types, tags and folders exist.
+When kb_ask is not confident, okvault notes the question on this machine so people can see what the vault is missing; kb_gaps lists those questions.
 
 Writing (kb_write): one concept per file, kebab-case .md paths, a required "type" (e.g. FAQ, Playbook, Reference, Decision, Tool).
 For an FAQ use type "FAQ", the canonical question as title, other phrasings in aliases, and the answer as body.
@@ -53,6 +55,9 @@ type Options struct {
 	Env func(string) string
 	// GitStatus reports the vault's git sync state (nil: git is off).
 	GitStatus func() any
+	// Gaps records the questions kb_ask cannot answer confidently and serves
+	// kb_gaps (nil: off).
+	Gaps *gaps.Log
 }
 
 // Server binds a vault and its search index to MCP tools.
@@ -244,11 +249,14 @@ func (s *Server) register() {
 		Title:       "Ask the knowledge base",
 		Description: "Fast answer to a natural-language question from the vault's FAQ notes. Returns the stored answer when the question matches confidently; otherwise confident=false plus the most relevant notes to read with kb_get. Try this first.",
 		Annotations: ro,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in AskIn) (*mcp.CallToolResult, *search.Answer, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in AskIn) (*mcp.CallToolResult, *search.Answer, error) {
 		if strings.TrimSpace(in.Question) == "" {
 			return nil, nil, errors.New("question is required")
 		}
 		a, err := s.ix.Ask(in.Question)
+		if err == nil && !a.Confident {
+			s.recordGap(req, in.Question)
+		}
 		return nil, a, err
 	})
 
@@ -328,6 +336,23 @@ func (s *Server) register() {
 		return nil, out, nil
 	})
 
+	if s.opts.Gaps != nil {
+		mcp.AddTool(s.MCP, &mcp.Tool{
+			Name:        "kb_gaps",
+			Title:       "Questions the vault cannot answer",
+			Description: "Knowledge gaps: questions kb_ask could not answer confidently on this machine, grouped with their other phrasings, most asked first, with the FAQ that came closest and the notes agents read instead. Groups an FAQ answers now drop out. Use it to write the FAQ entries the team is missing (kb_write type FAQ, the question as title, the phrasings as aliases). dismiss hides a group; only when a person asks.",
+			Annotations: &mcp.ToolAnnotations{IdempotentHint: true, OpenWorldHint: new(bool), DestructiveHint: new(bool)},
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in GapsIn) (*mcp.CallToolResult, GapsOut, error) {
+			if id := strings.TrimSpace(in.Dismiss); id != "" {
+				if err := s.opts.Gaps.Dismiss(id, time.Now()); err != nil {
+					return nil, GapsOut{}, err
+				}
+			}
+			out, err := BuildGaps(s.ix, s.opts.Gaps, in.Limit)
+			return nil, out, err
+		})
+	}
+
 	if s.opts.ReadOnly {
 		return
 	}
@@ -349,6 +374,26 @@ func (s *Server) register() {
 		s.Refresh(s.v.Snapshot())
 		return nil, &WriteOut{WriteResult: res, Sync: s.gitStatus()}, nil
 	})
+}
+
+// recordGap notes a question kb_ask could not answer, unless it came from the
+// Obsidian plugin's FAQ box (a person typing) or has no content words.
+func (s *Server) recordGap(req *mcp.CallToolRequest, q string) {
+	if s.opts.Gaps == nil || !search.HasTerms(q) {
+		return
+	}
+	client := ""
+	if req != nil && req.Session != nil {
+		if p := req.Session.InitializeParams(); p != nil && p.ClientInfo != nil {
+			client = p.ClientInfo.Name
+		}
+	}
+	if client == PluginClient {
+		return
+	}
+	if err := s.opts.Gaps.Record(q, client, time.Now()); err != nil {
+		slog.Warn("recording a knowledge gap failed", "err", err)
+	}
 }
 
 // tracker returns the tracker for the current config, rebuilding it when

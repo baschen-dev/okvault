@@ -29,6 +29,12 @@ An Obsidian plugin that shows the vault the way okvault's agents see it.
   - **Record what we learned** creates a note from a `_templates/` template, with `tickets: [PROJ-123]` filled in, in the folder where that type of note usually lives.
   - With no ticket open, it lists every ticket the vault documents.
   - Without Jira credentials it still shows the vault's own notes.
+- **Knowledge gaps** (right sidebar). Lists the questions agents asked that no FAQ answers confidently, most asked first, from `kb_gaps`. Each gap shows its other phrasings, who asked and when, and the notes agents read instead. Three actions:
+  - **Answer this** creates an FAQ with the question as its title and the other phrasings as aliases. The note starts with `status: draft` and links to the related notes. A draft never answers `kb_ask`, so agents don't get a half-written answer. Remove `status: draft` once the answer is written.
+  - **Add as aliases** fixes a near miss: an FAQ that came close (50% or more) and probably answers the question already.
+  - **Dismiss** hides a question the vault should not answer.
+
+  Gaps an FAQ now answers drop out on their own. The questions are recorded per machine by okvault, outside the vault (see the main README). Your own searches in the FAQ panel are not counted. Agents' okvault must be recent enough to record gaps.
 - **Team settings** (*Settings → okvault*, below the plugin's own settings). This is a form for the vault's `.okvault.yaml`, which the whole team shares:
   - it covers git mode, when your Obsidian edits are committed, background sync, the pull request branch, the review interval, folder owners and the ticket tracker;
   - fields appear only when they apply to the chosen mode, and each field shows problems as you type;

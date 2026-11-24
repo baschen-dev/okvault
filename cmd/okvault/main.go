@@ -23,6 +23,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/baschen-dev/okvault/internal/config"
+	"github.com/baschen-dev/okvault/internal/gaps"
 	"github.com/baschen-dev/okvault/internal/gitsync"
 	"github.com/baschen-dev/okvault/internal/search"
 	"github.com/baschen-dev/okvault/internal/server"
@@ -35,7 +36,7 @@ const usage = `okvault - OKF knowledge vault for AI agents (MCP)
 
 Usage:
   okvault serve  [--vault DIR] [--read-only] [--author NAME] [--no-watch] [--git MODE]
-                 [--http] [--port N] [--host ADDR]
+                 [--http] [--port N] [--host ADDR] [--gaps FILE|off]
                                                 MCP server on stdio, or with --http / --port on
                                                 http://HOST:PORT/mcp (default 127.0.0.1:8765)
   okvault ask    [--vault DIR] QUESTION...                                  FAQ fast answer
@@ -44,6 +45,7 @@ Usage:
   okvault index  [--vault DIR]                                              regenerate index.md files, repair log.md
   okvault ticket [--vault DIR] KEY                                          ticket + related notes
   okvault review [--vault DIR] [--owner O] [--reason R]                     notes needing a person
+  okvault gaps   [--vault DIR] [--limit N] [--json] [--gaps FILE]           questions agents asked that no FAQ answers
   okvault verify [--vault DIR] [--by NAME] PATH...                          mark notes checked by a person
   okvault sync   [--vault DIR] [--git MODE] [--json]                        commit edits, rebase, push / update the PR
   okvault version
@@ -51,6 +53,9 @@ Usage:
 Jira credentials (for ticket / kb_ticket): JIRA_API_TOKEN, plus JIRA_EMAIL on Jira Cloud.
 Git: set git.mode in .okvault.yaml (off, commit, push, pr); --git overrides it on this machine.
 GitHub pull requests (pr mode): GH_TOKEN or GITHUB_TOKEN, else the GitHub CLI's login.
+
+Knowledge gaps: serve records the questions kb_ask cannot answer confidently in a per-machine
+file outside the vault (the user cache directory); --gaps off turns that off.
 
 The vault defaults to $OKVAULT_DIR, else ./vault if it exists, else the current directory.
 `
@@ -79,6 +84,8 @@ func main() {
 		err = ticketCmd(args, os.Stdout)
 	case "review":
 		err = review(args, os.Stdout)
+	case "gaps":
+		err = gapsCmd(args, os.Stdout)
 	case "verify":
 		err = verify(args, os.Stdout)
 	case "sync":
@@ -138,6 +145,7 @@ func serve(args []string) error {
 	useHTTP := fs.Bool("http", false, "serve MCP over HTTP (Streamable HTTP at /mcp) instead of stdio")
 	port := fs.Int("port", 0, fmt.Sprintf("HTTP port; implies --http (default %d)", defaultPort))
 	host := fs.String("host", "127.0.0.1", "HTTP listen address; use 0.0.0.0 to accept other machines (no authentication)")
+	gapsFile := fs.String("gaps", "", "where to record questions kb_ask cannot answer (default: a per-machine file in the user cache directory); off to disable")
 	_ = fs.Parse(args)
 	if *port < 0 || *port > 65535 {
 		return fmt.Errorf("--port %d is out of range", *port)
@@ -147,6 +155,9 @@ func serve(args []string) error {
 		return err
 	}
 	opts := server.Options{ReadOnly: *readOnly, Author: *author, Version: version, Env: os.Getenv}
+	if opts.Gaps, err = openGaps(*gapsFile, v.Root); err != nil {
+		slog.Warn("knowledge gaps are not recorded", "err", err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	var gs *gitsync.Syncer
@@ -460,6 +471,57 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// openGaps opens the knowledge-gaps log: file, or the per-machine default for
+// the vault; nil for "off".
+func openGaps(file, vaultRoot string) (*gaps.Log, error) {
+	switch strings.ToLower(strings.TrimSpace(file)) {
+	case "off", "none", "false":
+		return nil, nil
+	case "":
+		p, err := gaps.DefaultPath(vaultRoot)
+		if err != nil {
+			return nil, err
+		}
+		return gaps.Open(p), nil
+	}
+	return gaps.Open(file), nil
+}
+
+func gapsCmd(args []string, w io.Writer) error {
+	fs := flag.NewFlagSet("gaps", flag.ExitOnError)
+	dir := fs.String("vault", defaultVault(), "vault directory")
+	limit := fs.Int("limit", 20, "max groups")
+	asJSON := fs.Bool("json", false, "print JSON")
+	file := fs.String("gaps", "", "the gaps log (default: this machine's log for the vault)")
+	_ = fs.Parse(args)
+	v, ix, err := open(fs, *dir)
+	if err != nil {
+		return err
+	}
+	l, err := openGaps(*file, v.Root)
+	if err != nil || l == nil {
+		return fmt.Errorf("no gaps log: %v", err)
+	}
+	out, err := server.BuildGaps(ix, l, *limit)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return printJSON(w, out)
+	}
+	for _, g := range out.Gaps {
+		fmt.Fprintf(w, "%3dx  %s\n", g.Asked, g.Question)
+		for _, p := range g.Phrasings[1:] {
+			fmt.Fprintf(w, "      also: %s\n", p)
+		}
+		if g.Nearest != nil {
+			fmt.Fprintf(w, "      nearest FAQ: %s (%.2f, %s)\n", g.Nearest.Question, g.Nearest.Confidence, g.Nearest.Path)
+		}
+	}
+	fmt.Fprintf(w, "%d open, %d answered since, %d dismissed  (log: %s)\n", out.Total, out.Answered, out.Dismissed, out.Log)
+	return nil
 }
 
 func review(args []string, w io.Writer) error {

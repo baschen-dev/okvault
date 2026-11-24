@@ -2,7 +2,8 @@
 // Serves the views (with an Obsidian API stub) on :8790 and proxies /mcp to a local okvault.
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import esbuild from "esbuild";
 import { readVaultNotes } from "../vault-notes.ts";
@@ -15,7 +16,18 @@ const vault = process.env.OKVAULT_VAULT ?? join(root, "..", "vault");
 const okPort = 8791;
 const bin = process.env.OKVAULT_BIN;
 const [cmd, args] = bin ? [bin, [] as string[]] : ["go", ["run", "./cmd/okvault"]];
-const ok = spawn(cmd, [...args, "serve", "--vault", vault, "--port", String(okPort), "--read-only", "--git", "off"], { cwd: join(root, ".."), stdio: "inherit" });
+// A demo knowledge-gaps log, so the gaps panel has something to show.
+const gapsFile = join(tmpdir(), "okvault-preview-gaps.jsonl");
+const at = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+writeFileSync(gapsFile, [
+  { at: at(30), q: "how do we rotate the jira api token", client: "claude-code" },
+  { at: at(20), q: "How do we rotate the Jira API token?", client: "cursor" },
+  { at: at(5), q: "rotate jira api token steps", client: "claude-code" },
+  { at: at(26), q: "how do we cut a hotfix release", client: "claude-code" },
+  { at: at(2), q: "what does okvault do with draft faqs", client: "claude-code" },
+  { at: at(1), q: "How do I write a FAQ?", client: "claude-code" },
+].map((e) => JSON.stringify(e)).join("\n") + "\n");
+const ok = spawn(cmd, [...args, "serve", "--vault", vault, "--port", String(okPort), "--read-only", "--git", "off", "--gaps", gapsFile], { cwd: join(root, ".."), stdio: "inherit" });
 process.on("exit", () => ok.kill());
 process.on("SIGINT", () => process.exit());
 

@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OkvaultClient, parseMessages, type Post } from "../src/client.ts";
 import { OkvaultProcess, checkConfig, lintVault, syncNow, verifyNote } from "../src/server.ts";
-import { folderFor, kebab, normalizeKey, ticketKeyAt, ticketsOf, trustOf } from "../src/noteFacts.ts";
+import { fillTemplate, folderFor, kebab, mergeAliases, normalizeKey, notePath, relativeLink, ticketKeyAt, ticketsOf, trustOf } from "../src/noteFacts.ts";
 import { applyTeamConfig, checkTeamConfig, emptyConfig, readTeamConfig, type TeamConfig } from "../src/teamConfig.ts";
 import { buildBundle } from "../src/bundle.ts";
 import { readVaultNotes } from "./vault-notes.ts";
@@ -75,6 +75,20 @@ check("angles in (0, 2π) and distinct", angles.every((a) => a > 0 && a < 2 * Ma
   check("folder suggestion follows where a type lives", folderFor("FAQ", sample) === "faq" && folderFor("decision", sample) === "decisions" && folderFor("Playbook", sample) === "");
 }
 
+// ---- knowledge gaps helpers ----
+{
+  check("aliases merge without duplicates of each other or the title",
+    mergeAliases(["Rotate token"], ["How do we rotate the Jira token?", "rotate token", "how do we rotate the jira token", "New way?"], "How do we rotate the Jira token").join(" | ") ===
+      "Rotate token | New way?");
+  check("aliases from a scalar or nothing", mergeAliases("one", ["two"], "t").join() === "one,two" && mergeAliases(undefined, ["x"], "t").join() === "x");
+  check("relative links between notes", relativeLink("faq/a.md", "reference/b.md") === "../reference/b.md" && relativeLink("faq/a.md", "faq/c.md") === "./c.md" && relativeLink("a.md", "faq/c.md") === "./faq/c.md");
+  const faqTemplate = '---\ntype: FAQ\ntitle: "{{title}}?"\naliases: []\n---\n\nAnswer about {{title}}.\n';
+  const filled = fillTemplate(faqTemplate, "FAQ", 'What is "okvault" $1?');
+  check("template title escaped in YAML, as typed in the body, one question mark",
+    filled.includes('title: "What is \\"okvault\\" $1?"') && filled.includes('Answer about What is "okvault" $1.'), filled);
+  check("note path from folder and title", notePath("faq/", "How do we rotate the Jira token?") === "faq/how-do-we-rotate-the-jira-token.md" && notePath("", "!!") === null);
+}
+
 // ---- live server, started the way the plugin starts it ----
 const TMP = mkdtempSync(join(tmpdir(), "okvault-plugin-"));
 const exe = process.platform === "win32" ? ".exe" : "";
@@ -93,7 +107,15 @@ async function up(c: OkvaultClient): Promise<boolean> {
 }
 
 const proc = new OkvaultProcess();
-proc.start({ binary: BIN, vaultDir: VAULT, host: "127.0.0.1", port: PORT, versioning: false });
+const GAPS = join(TMP, "gaps.jsonl");
+const at = (m: number) => new Date(Date.UTC(2026, 10, 24, 9, m)).toISOString();
+writeFileSync(GAPS, [
+  { at: at(0), q: "how do we rotate the jira api token", client: "claude-code" },
+  { at: at(1), q: "How do we rotate the Jira API token?", client: "cursor" },
+  { at: at(2), q: "How do I write a FAQ?", client: "claude-code" }, // an alias of faq/how-do-i-add-an-faq.md
+  { at: at(3), q: "what colour is the deploy pipeline", client: "claude-code" },
+].map((e) => JSON.stringify(e)).join("\n") + "\n");
+proc.start({ binary: BIN, vaultDir: VAULT, host: "127.0.0.1", port: PORT, versioning: false, gapsFile: GAPS });
 
 try {
   const c = new OkvaultClient(`http://127.0.0.1:${PORT}/mcp`, fetchPost);
@@ -132,6 +154,18 @@ try {
       bad = (e as Error).message;
     }
     check("kb_ticket rejects a non-key", bad.includes("not a ticket key"), bad);
+
+    const g = await c.gaps();
+    const top = g.gaps[0];
+    check("kb_gaps: most asked first, phrasings grouped", g.total === 2 && top?.asked === 2 && top.question.toLowerCase().includes("rotate the jira api token") && top.clients?.join() === "claude-code,cursor", JSON.stringify(g).slice(0, 200));
+    check("kb_gaps: a question an FAQ answers now is not a gap", g.answered === 1, String(g.answered));
+    const lines = () => readFileSync(GAPS, "utf8").trim().split("\n").length;
+    const before = lines();
+    await c.ask("how do we rotate the jira api tok");
+    check("the plugin's own questions are not recorded", lines() === before);
+    const after = await c.gaps({ dismiss: top.id });
+    check("dismiss hides a gap", after.total === 1 && after.dismissed === 1 && after.gaps[0].id !== top.id);
+    check("kb_gaps reports where the log is", after.log.replace(/\\/g, "/").endsWith("gaps.jsonl"), after.log);
 
     const clean = await lintVault(BIN, VAULT);
     check("lint: the repo vault is clean", !clean.error && clean.findings.size === 0, clean.error ?? [...clean.findings.keys()].join());

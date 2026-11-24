@@ -46,7 +46,7 @@ It listens on 127.0.0.1 only. `--host 0.0.0.0` accepts other machines, but there
 
 To use the vault in Obsidian, choose *Open folder as vault* and pick `vault/`.
 
-The optional [Obsidian plugin](obsidian-plugin/README.md) adds two views to Obsidian. *Ask the FAQ* uses `kb_ask` and `kb_search` from a local okvault, so it gives the same answers agents get. The *bundle map* shows sections, note types and links, and marks the notes that need review. A note inspector shows who wrote and checked the open note, its owners, tickets, lint findings with quick fixes, and similar notes. A ticket workspace shows a ticket next to the notes about it, and records what you learned in a note linked to it. A versioning panel shows git sync state and pull request, offers *Sync now*, lets people mark notes as checked (`okvault verify`), and gives a settings form for `.okvault.yaml` that okvault validates before saving. Install it with `just plugin`. If you also use the Obsidian Git plugin, turn off its automatic commit, pull and push, because okvault owns git in the vault; see [Obsidian Git](obsidian-plugin/README.md#obsidian-git).
+The optional [Obsidian plugin](obsidian-plugin/README.md) adds two views to Obsidian. *Ask the FAQ* uses `kb_ask` and `kb_search` from a local okvault, so it gives the same answers agents get. The *bundle map* shows sections, note types and links, and marks the notes that need review. A note inspector shows who wrote and checked the open note, its owners, tickets, lint findings with quick fixes, and similar notes. A ticket workspace shows a ticket next to the notes about it, and records what you learned in a note linked to it. A knowledge gaps panel lists the questions agents asked that no FAQ answers, and turns them into FAQ entries. A versioning panel shows git sync state and pull request, offers *Sync now*, lets people mark notes as checked (`okvault verify`), and gives a settings form for `.okvault.yaml` that okvault validates before saving. Install it with `just plugin`. If you also use the Obsidian Git plugin, turn off its automatic commit, pull and push, because okvault owns git in the vault; see [Obsidian Git](obsidian-plugin/README.md#obsidian-git).
 
 An existing Obsidian vault works too: notes without frontmatter are loaded as untyped notes (searchable, linked, a lint warning each) until someone gives them a `type`.
 
@@ -60,7 +60,17 @@ An existing Obsidian vault works too: notes without frontmatter are loaded as un
 | `kb_list` | Counts notes per type, tag and folder, and lists the notes that match the filters. |
 | `kb_ticket` | Context for a ticket key: the ticket from Jira (when configured), notes linked to it or mentioning it, and notes matching its summary. Works without Jira credentials, from the vault alone. |
 | `kb_review` | Notes that need a person: stale, unverified agent edits, drafts, broken links, no owner. Filter by owner or reason. |
+| `kb_gaps` | Knowledge gaps: questions `kb_ask` could not answer confidently, grouped with their other phrasings, most asked first, with the nearest FAQ and the notes agents read instead. Groups an FAQ answers now drop out; `dismiss` hides one. |
 | `kb_write` | Creates or updates a note. It requires `type`, keeps unknown keys, stamps `generated`, refreshes `index.md` and appends to `log.md`. `base_revision` (from `kb_get`) makes it fail instead of overwriting a teammate's change. Disabled with `--read-only`. |
+
+## Knowledge gaps
+
+When `kb_ask` cannot answer a question confidently, okvault records the question, so people can see what agents needed that the vault does not say yet. `kb_gaps`, `okvault gaps` and the Obsidian plugin list these questions, grouped with their other phrasings and most asked first.
+
+- **Per machine, outside the vault.** The log is a JSON Lines file in the user cache directory (for example `~/.cache/okvault/gaps-<hash>.jsonl`, or `%LocalAppData%\okvault\…` on Windows), one per vault. It is never committed, because questions can carry details of the work an agent was doing. `serve --gaps FILE` picks another file; `--gaps off` records nothing.
+- **What is recorded:** the question (at most 500 characters), when it was asked, and the MCP client's name. Nothing else is stored, and nothing leaves the machine.
+- **What is not recorded:** questions an FAQ answers, questions with no content words, and the Obsidian plugin's own FAQ box (a person typing, not an agent).
+- **Closing a gap:** write an FAQ, or add the phrasing to an existing one's `aliases`, and the gap drops out. An FAQ with `status: draft` does not answer yet, so a gap stays open until its answer is written; see [How does kb_ask decide](vault/faq/how-does-kb-ask-decide.md).
 
 ## Teams and tickets
 
@@ -145,13 +155,14 @@ The vault can also live in its own repository. Point `--vault` (or `OKVAULT_DIR`
 
 ```
 okvault serve  [--vault DIR] [--read-only] [--author NAME] [--no-watch] [--git off|commit|push|pr]
-               [--http] [--port N] [--host ADDR]   # stdio by default; HTTP at /mcp with --http or --port
+               [--http] [--port N] [--host ADDR] [--gaps FILE|off]   # stdio by default; HTTP at /mcp with --http or --port
 okvault ask    [--vault DIR] [--json] QUESTION...
 okvault search [--vault DIR] [--type T] [--tag T] [--limit N] [--json] QUERY...
 okvault lint   [--vault DIR] [--strict]      # OKF conformance (errors) + hygiene (warnings)
 okvault index  [--vault DIR]                 # regenerate okvault-owned index.md files, repair log.md after merges
 okvault ticket [--vault DIR] [--json] KEY    # ticket + related notes
 okvault review [--vault DIR] [--owner O] [--reason R] [--json]
+okvault gaps   [--vault DIR] [--limit N] [--json]  # questions agents asked that no FAQ answers
 okvault verify [--vault DIR] [--by NAME] PATH...   # default name: git config user.name
 okvault sync   [--vault DIR] [--git MODE] [--json]   # commit edits, rebase, push or update the pull request
 ```
