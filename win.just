@@ -26,3 +26,6 @@ plugin:
 
 plugin-test:
     Push-Location obsidian-plugin; npm ci; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm run check; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm test; $c = $LASTEXITCODE; Pop-Location; exit $c
+
+plugin-version version:
+    Push-Location obsidian-plugin; node version-bump.mjs {{version}}; $c = $LASTEXITCODE; Pop-Location; exit $c

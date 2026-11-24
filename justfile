@@ -44,3 +44,7 @@ plugin:
 # Test the Obsidian plugin's MCP client against a real `okvault serve`
 plugin-test:
     cd obsidian-plugin && npm ci && npm run check && npm test
+
+# Set the plugin's version (manifest, package, versions.json) before tagging vX.Y.Z
+plugin-version version:
+    cd obsidian-plugin && node version-bump.mjs {{version}}

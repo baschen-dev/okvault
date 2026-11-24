@@ -28,3 +28,38 @@ jobs:
         run: |
           go run ./cmd/okvault index --vault vault
           git diff --exit-code -- vault
+
+  plugin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: obsidian-plugin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: obsidian-plugin/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - name: Test against a real okvault serve
+        run: npm test
+      - run: npm run build
+      - name: Versions agree
+        run: |
+          m=$(node -p "require('./manifest.json').version")
+          p=$(node -p "require('./package.json').version")
+          v=$(node -p "require('./versions.json')['$m'] ?? ''")
+          [ "$m" = "$p" ] || { echo "::error::manifest.json is $m, package.json is $p"; exit 1; }
+          [ -n "$v" ] || { echo "::error file=obsidian-plugin/versions.json::no entry for $m"; exit 1; }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: okvault-obsidian
+          path: |
+            obsidian-plugin/main.js
+            obsidian-plugin/manifest.json
+            obsidian-plugin/styles.css
