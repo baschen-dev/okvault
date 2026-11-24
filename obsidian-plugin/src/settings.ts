@@ -2,6 +2,7 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import type OkvaultPlugin from "./main";
 import { TeamSettingsSection } from "./teamSettings";
 import { ConnectionsSection } from "./connectionsSection";
+import { normalizeRoot } from "./paths";
 
 export interface OkvaultSettings {
   /** okvault's MCP endpoint, as printed by `okvault serve --port N`. */
@@ -12,8 +13,11 @@ export interface OkvaultSettings {
   binaryPath: string;
   /** "follow": the server commits and syncs as .okvault.yaml says; "off": read-only, git off. */
   versioning: "follow" | "off";
-  /** Folder of this Obsidian vault that is the okvault vault ("" = the whole vault). */
+  /** okvault root: a folder of this Obsidian vault, relative to it ("" = the vault itself). */
   vaultFolder: string;
+  /** Bundle map filters: types and sections left out of the graph. */
+  graphHiddenTypes: string[];
+  graphHiddenSections: string[];
 }
 
 export const DEFAULT_SETTINGS: OkvaultSettings = {
@@ -24,6 +28,8 @@ export const DEFAULT_SETTINGS: OkvaultSettings = {
   binaryPath: "okvault",
   versioning: "follow",
   vaultFolder: "",
+  graphHiddenTypes: [],
+  graphHiddenSections: [],
 };
 
 export class OkvaultSettingTab extends PluginSettingTab {
@@ -98,20 +104,34 @@ export class OkvaultSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
-      .setName("okvault folder")
+    const root = new Setting(containerEl)
+      .setName("okvault root")
       .setDesc(
-        "Leave empty when this Obsidian vault is the okvault vault (the usual setup: open `vault/` as the Obsidian vault). If you opened the repository root instead, enter `vault`.",
-      )
-      .addText((t) =>
-        t
-          .setPlaceholder("(whole vault)")
-          .setValue(s.vaultFolder)
-          .onChange(async (v) => {
-            s.vaultFolder = v.trim().replace(/^\/+|\/+$/g, "");
-            await this.plugin.saveSettings();
-          }),
+        "The okvault folder, relative to this Obsidian vault. Empty, `.` or `/` (the default) mean the vault itself, the usual setup when you open `vault/` as the Obsidian vault. If you opened the repository root instead, enter `vault`. Notes outside it are left out, and its `.okvault.yaml` and `.vaultignore` are the ones used.",
       );
+    const problem = root.descEl.createDiv({ cls: "okvault-setting-problem" });
+    const showProblem = (raw: string) => {
+      const n = normalizeRoot(raw);
+      problem.setText(
+        n === null
+          ? "Must stay inside this vault (no `..`)."
+          : n && !this.app.vault.getAbstractFileByPath(n)
+            ? `No folder ${n}/ in this vault.`
+            : "",
+      );
+    };
+    root.addText((t) => {
+      t.setPlaceholder("/ (vault root)")
+        .setValue(s.vaultFolder)
+        .onChange(async (v) => {
+          showProblem(v);
+          const n = normalizeRoot(v);
+          if (n === null || n === s.vaultFolder) return;
+          s.vaultFolder = n;
+          await this.plugin.saveSettings();
+        });
+      showProblem(s.vaultFolder);
+    });
 
     new Setting(containerEl)
       .setName("Connection")

@@ -1,5 +1,5 @@
 import { ItemView, WorkspaceLeaf, debounce, setIcon } from "obsidian";
-import { Bundle, Node, arcPath, buildBundle, polar, ROOT, UNTYPED } from "./bundle";
+import { Bundle, Catalog, GraphFilter, Node, arcPath, buildBundle, catalog, filterNotes, polar, ROOT, UNTYPED } from "./bundle";
 import type OkvaultPlugin from "./main";
 
 export const BUNDLE_VIEW = "okvault-bundle";
@@ -23,7 +23,7 @@ export class BundleView extends ItemView {
   private bundle: Bundle | null = null;
   private reasons = new Map<string, string[]>();
   private reviewSource: "server" | "local" = "local";
-  private hiddenTypes = new Set<string>();
+  private catalog: Catalog = { types: [], typeCount: new Map(), sections: [], total: 0 };
   private focusSection: string | null = null;
   private svg!: SVGSVGElement;
   private tip!: HTMLElement;
@@ -58,9 +58,12 @@ export class BundleView extends ItemView {
 
     const bar = root.createDiv({ cls: "okvault-toolbar" });
     this.infoEl = bar.createDiv({ cls: "okvault-info" });
-    const btn = bar.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Refresh (reload review status from okvault)" } });
+    const btn = bar.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Refresh (re-read .vaultignore and the review status from okvault)" } });
     setIcon(btn, "refresh-cw");
-    btn.addEventListener("click", () => this.reload());
+    btn.addEventListener("click", async () => {
+      await this.plugin.loadIgnore();
+      await this.reload();
+    });
 
     this.legendEl = root.createDiv({ cls: "okvault-legend" });
     const wrap = root.createDiv({ cls: "okvault-chart" });
@@ -100,11 +103,40 @@ export class BundleView extends ItemView {
     this.render();
   }
 
+  /** The filters, kept in the plugin's settings so they survive a restart. */
+  private filter(): GraphFilter {
+    return {
+      hiddenTypes: new Set(this.plugin.settings.graphHiddenTypes),
+      hiddenSections: new Set(this.plugin.settings.graphHiddenSections),
+    };
+  }
+
+  private async setFilter(f: GraphFilter): Promise<void> {
+    this.plugin.settings.graphHiddenTypes = [...f.hiddenTypes].sort();
+    this.plugin.settings.graphHiddenSections = [...f.hiddenSections].sort();
+    this.render();
+    await this.plugin.saveSettings();
+  }
+
+  /** Filters that hide something present in the vault now. */
+  private activeFilters(f: GraphFilter): number {
+    return (
+      this.catalog.types.filter((t) => f.hiddenTypes.has(t)).length +
+      this.catalog.sections.filter((s) => f.hiddenSections.has(s.name)).length
+    );
+  }
+
   private render(): void {
-    const b = buildBundle(this.plugin.localNotes(), this.reasons, RADIUS);
+    const all = this.plugin.localNotes();
+    const cat = catalog(all);
+    this.catalog = cat;
+    const filter = this.filter();
+    // Filtered notes are left out of the layout: no slot, no arc, no links, no row.
+    const b = buildBundle(filterNotes(all, filter), this.reasons, RADIUS);
     this.bundle = b;
+    // Colours come from the whole vault, so hiding a type never repaints the others.
     this.slot.clear();
-    b.types
+    cat.types
       .filter((t) => t !== UNTYPED)
       .forEach((t, i) => this.slot.set(t, i < MAX_SLOTS ? `okvault-s${i + 1}` : "okvault-sother"));
     this.slot.set(UNTYPED, "okvault-sother");
@@ -112,8 +144,11 @@ export class BundleView extends ItemView {
 
     const needs = [...b.nodes.values()].filter((n) => n.reasons.size).length;
     this.infoEl.empty();
+    const filtered = b.nodes.size < cat.total;
     this.infoEl.createSpan({
-      text: `${b.nodes.size} notes · ${b.sections.length} sections · ${b.edges.length} links · ${needs} need review`,
+      text:
+        `${filtered ? `${b.nodes.size} of ${cat.total}` : b.nodes.size} notes · ` +
+        `${b.sections.length} sections · ${b.edges.length} links · ${needs} need review`,
     });
     this.infoEl.createSpan({
       cls: "okvault-muted",
@@ -128,32 +163,63 @@ export class BundleView extends ItemView {
     this.renderTable(b);
   }
 
-  private renderLegend(b: Bundle): void {
+  private renderLegend(_b: Bundle): void {
     const el = this.legendEl;
     el.empty();
-    const folded = b.types.filter((t) => this.slot.get(t) === "okvault-sother" && t !== UNTYPED);
-    const entries = b.types.filter((t) => !folded.includes(t) && t !== UNTYPED);
-    const counts = new Map<string, number>();
-    for (const n of b.nodes.values()) counts.set(n.type, (counts.get(n.type) ?? 0) + 1);
-    const item = (label: string, cls: string, types: string[], count: number) => {
-      const off = types.every((t) => this.hiddenTypes.has(t));
-      const chip = el.createEl("button", {
+    const cat = this.catalog;
+    const f = this.filter();
+    const counts = cat.typeCount;
+    const folded = cat.types.filter((t) => this.slot.get(t) === "okvault-sother" && t !== UNTYPED);
+    const entries = cat.types.filter((t) => !folded.includes(t) && t !== UNTYPED);
+
+    const row = (label: string) => {
+      const r = el.createDiv({ cls: "okvault-filter-row" });
+      r.createSpan({ cls: "okvault-muted okvault-filter-label", text: label });
+      return r;
+    };
+    const chip = (parent: HTMLElement, label: string, count: number, off: boolean, swatch: string | null, toggle: () => void) => {
+      const c = parent.createEl("button", {
         cls: `okvault-chip ${off ? "is-off" : ""}`,
-        attr: { "aria-pressed": String(!off), title: off ? "Show" : "Hide" },
+        attr: { "aria-pressed": String(!off), title: off ? "Show in the map" : "Leave out of the map" },
       });
-      chip.createSpan({ cls: `okvault-swatch ${cls}` });
-      chip.createSpan({ text: `${label} ${count}` });
-      chip.addEventListener("click", () => {
-        for (const t of types) off ? this.hiddenTypes.delete(t) : this.hiddenTypes.add(t);
-        this.render();
+      if (swatch) c.createSpan({ cls: `okvault-swatch ${swatch}` });
+      c.createSpan({ text: `${label} ${count}` });
+      c.addEventListener("click", toggle);
+    };
+
+    const types = row("Types");
+    const typeChip = (label: string, cls: string, ts: string[]) => {
+      const off = ts.every((t) => f.hiddenTypes.has(t));
+      chip(types, label, ts.reduce((s, t) => s + (counts.get(t) ?? 0), 0), off, cls, () => {
+        for (const t of ts) off ? f.hiddenTypes.delete(t) : f.hiddenTypes.add(t);
+        void this.setFilter(f);
       });
     };
-    for (const t of entries) item(t, this.slot.get(t)!, [t], counts.get(t) ?? 0);
+    for (const t of entries) typeChip(t, this.slot.get(t)!, [t]);
     const other = [...folded, ...(counts.has(UNTYPED) ? [UNTYPED] : [])];
     if (other.length) {
       const label = folded.length ? (counts.has(UNTYPED) ? "Other & untyped" : "Other") : UNTYPED;
-      item(label, "okvault-sother", other, other.reduce((s, t) => s + (counts.get(t) ?? 0), 0));
+      typeChip(label, "okvault-sother", other);
     }
+
+    if (cat.sections.length > 1) {
+      const secs = row("Sections");
+      for (const s of cat.sections) {
+        const off = f.hiddenSections.has(s.name);
+        chip(secs, s.name === ROOT ? "(root)" : `${s.name}/`, s.count, off, null, () => {
+          off ? f.hiddenSections.delete(s.name) : f.hiddenSections.add(s.name);
+          if (!off && this.focusSection === s.name) this.focusSection = null;
+          void this.setFilter(f);
+        });
+      }
+    }
+
+    const active = this.activeFilters(f);
+    if (active) {
+      const reset = el.createEl("button", { cls: "okvault-filter-reset", text: `Show all (${active} hidden)` });
+      reset.addEventListener("click", () => void this.setFilter({ hiddenTypes: new Set(), hiddenSections: new Set() }));
+    }
+
     const key = el.createDiv({ cls: "okvault-legend-review" });
     key.createSpan({ cls: "okvault-muted", text: "Ring = needs review:" });
     for (const r of REASONS.slice(0, 3)) {
@@ -171,11 +237,12 @@ export class BundleView extends ItemView {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     if (!b.nodes.size) {
       const t = el("text", { x: 0, y: 0, "text-anchor": "middle", class: "okvault-empty-text" });
-      t.textContent = "No OKF notes found. Check the okvault folder setting.";
+      t.textContent = this.catalog.total
+        ? "Every note is filtered out. Turn a type or section back on above."
+        : "No OKF notes found. Check the okvault root setting and .vaultignore.";
       svg.appendChild(t);
       return;
     }
-    const visible = (n: Node) => !this.hiddenTypes.has(n.type);
     const gEdges = el("g", { class: "okvault-edges" });
     const gArcs = el("g", { class: "okvault-arcs" });
     const gNodes = el("g", { class: "okvault-nodes" }) as SVGGElement;
@@ -184,9 +251,6 @@ export class BundleView extends ItemView {
 
     const edgeEls: { from: string; to: string; el: SVGPathElement }[] = [];
     for (const e of b.edges) {
-      const s = b.nodes.get(e.from)!;
-      const t = b.nodes.get(e.to)!;
-      if (!visible(s) || !visible(t)) continue;
       const p = el("path", { d: e.d, class: `okvault-edge ${e.intra ? "is-intra" : ""}` }) as SVGPathElement;
       gEdges.appendChild(p);
       edgeEls.push({ from: e.from, to: e.to, el: p });
@@ -223,7 +287,6 @@ export class BundleView extends ItemView {
 
     const showTitles = b.nodes.size <= LABEL_LIMIT;
     for (const n of b.nodes.values()) {
-      if (!visible(n)) continue;
       const g = el("g", { class: "okvault-node", "data-path": n.path, tabindex: "0" });
       const reason = REASONS.find((r) => n.reasons.has(r.key));
       if (reason) {

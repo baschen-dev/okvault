@@ -12,7 +12,8 @@ import { OkvaultClient, parseMessages, type Post } from "../src/client.ts";
 import { OkvaultProcess, checkConfig, checkConnections, lintVault, syncNow, verifyNote } from "../src/server.ts";
 import { fillTemplate, folderFor, kebab, mergeAliases, normalizeKey, notePath, relativeLink, ticketKeyAt, ticketsOf, trustOf } from "../src/noteFacts.ts";
 import { applyTeamConfig, checkTeamConfig, emptyConfig, readTeamConfig, type TeamConfig } from "../src/teamConfig.ts";
-import { buildBundle } from "../src/bundle.ts";
+import { buildBundle, catalog, filterNotes } from "../src/bundle.ts";
+import { VaultIgnore, normalizeRoot } from "../src/paths.ts";
 import { readVaultNotes } from "./vault-notes.ts";
 
 const VAULT = join(import.meta.dirname, "..", "..", "vault");
@@ -47,6 +48,48 @@ check("links found", b.edges.length > 0, `${b.edges.length} edges`);
 check("review reason carried", b.nodes.get("faq/how-do-i-add-an-faq.md")!.reasons.has("unverified"));
 const angles = [...b.nodes.values()].map((n) => n.angle);
 check("angles in (0, 2π) and distinct", angles.every((a) => a > 0 && a < 2 * Math.PI) && new Set(angles).size === angles.length);
+
+// ---- graph filters remove notes from the layout ----
+{
+  const cat = catalog(notes);
+  check("catalog counts every concept", cat.total === b.nodes.size, `${cat.total} vs ${b.nodes.size}`);
+  const noFaq = buildBundle(filterNotes(notes, { hiddenTypes: new Set(["FAQ"]), hiddenSections: new Set() }), new Map());
+  check("hidden type leaves the layout", ![...noFaq.nodes.values()].some((n) => n.type === "FAQ") && noFaq.nodes.size === b.nodes.size - (cat.typeCount.get("FAQ") ?? 0));
+  check("hidden type's links go too", noFaq.edges.every((e) => noFaq.nodes.has(e.from) && noFaq.nodes.has(e.to)));
+  const angles2 = [...noFaq.nodes.values()].map((n) => n.angle).sort((x, y) => x - y);
+  check("remaining notes take the whole circle", angles2.length > 0 && angles2[angles2.length - 1] - angles2[0] > Math.PI);
+  const noSec = buildBundle(filterNotes(notes, { hiddenTypes: new Set(), hiddenSections: new Set(["faq"]) }), new Map());
+  check("hidden section has no arc", !noSec.sections.some((s) => s.name === "faq") && noSec.sections.length === b.sections.length - 1);
+  check("hidden section's notes gone", ![...noSec.nodes.keys()].some((p) => p.startsWith("faq/")));
+}
+
+// ---- okvault root and .vaultignore ----
+{
+  for (const [input, want] of [["", ""], [".", ""], ["/", ""], ["./", ""], ["  vault/ ", "vault"], ["./docs/kb/", "docs/kb"], ["docs\\kb", "docs/kb"], ["a//b", "a/b"], ["../x", null], ["a/../b", null]] as const) {
+    check(`normalizeRoot(${JSON.stringify(input)})`, normalizeRoot(input) === want, String(normalizeRoot(input)));
+  }
+  const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "..", "..", "internal", "vault", "testdata", "vaultignore-cases.json"), "utf8"));
+  let bad = 0;
+  let total = 0;
+  for (const g of fixture.groups) {
+    const ig = new VaultIgnore(g.rules);
+    for (const c of g.cases) {
+      total++;
+      if (ig.match(c.path, c.dir) !== c.ignored) {
+        bad++;
+        console.log(`     .vaultignore: match(${JSON.stringify(c.path)}, dir=${c.dir}) should be ${c.ignored}`);
+      }
+    }
+  }
+  check(".vaultignore matcher agrees with Go's cases", bad === 0 && total > 10, `${total - bad}/${total}`);
+  const dir = mkdtempSync(join(tmpdir(), "okv-ignore-"));
+  cpSync(VAULT, dir, { recursive: true });
+  writeFileSync(join(dir, ".vaultignore"), "reference/\n");
+  const kept = readVaultNotes(dir);
+  check("ignored folder left out of the notes", !kept.some((n) => n.path.startsWith("reference/")) && kept.length > 0);
+  check("links into ignored files are not broken", kept.every((n) => n.links.every((l) => !l.startsWith("reference/"))) && kept.reduce((s, n) => s + n.broken, 0) === notes.reduce((s, n) => s + n.broken, 0));
+  rmSync(dir, { recursive: true, force: true });
+}
 
 // ---- note facts (inspector, ticket workspace) ----
 {

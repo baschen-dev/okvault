@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, relative, dirname, posix } from "node:path";
 import type { NoteInput } from "../src/bundle.ts";
+import { IGNORE_FILE, VaultIgnore } from "../src/paths.ts";
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((f) => {
@@ -11,17 +12,21 @@ function walk(dir: string): string[] {
 }
 
 export function readVaultNotes(vault: string): (NoteInput & { aliases: string[]; description: string })[] {
+  const ignoreFile = join(vault, IGNORE_FILE);
+  const ignore = new VaultIgnore(existsSync(ignoreFile) ? readFileSync(ignoreFile, "utf8") : "");
+  const rel = (abs: string) => relative(vault, abs).split("\\").join("/");
   return walk(vault)
-    .filter((p) => p.endsWith(".md") && !relative(vault, p).startsWith("."))
+    .filter((p) => p.endsWith(".md") && !relative(vault, p).startsWith(".") && !ignore.match(rel(p)))
     .map((abs) => {
-      const path = relative(vault, abs).split("\\").join("/");
+      const path = rel(abs);
       const text = readFileSync(abs, "utf8").replace(/\r\n/g, "\n");
       const fm = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
       const get = (k: string) => new RegExp(`^${k}:\s*(.+)$`, "m").exec(fm)?.[1].trim() ?? "";
       const targets = [...text.matchAll(/\]\(([^)#\s]+\.md)\)/g)].map((m) =>
         m[1].startsWith("/") ? m[1].slice(1) : posix.normalize(posix.join(dirname(path), m[1])),
       );
-      const links = targets.filter((t) => existsSync(join(vault, t)));
+      const exists = targets.filter((t) => existsSync(join(vault, t)));
+      const links = exists.filter((t) => !ignore.match(t));
       return {
         path,
         title: get("title") || path.split("/").pop()!.replace(/\.md$/, ""),
@@ -30,7 +35,7 @@ export function readVaultNotes(vault: string): (NoteInput & { aliases: string[];
         description: get("description"),
         aliases: [],
         links,
-        broken: targets.length - links.length,
+        broken: targets.length - exists.length,
       };
     });
 }

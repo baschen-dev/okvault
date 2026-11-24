@@ -80,7 +80,7 @@ export class InspectorView extends ItemView {
     const p = this.okPath();
     const seq = ++this.seq;
     this.offline = "";
-    if (!p || !isConceptPath(p)) return this.render();
+    if (!p || !isConceptPath(p) || this.plugin.ignore.match(p)) return this.render();
     if (!(await this.plugin.ensureConnected())) {
       this.offline = this.plugin.lastError;
       return this.render();
@@ -114,7 +114,11 @@ export class InspectorView extends ItemView {
       return;
     }
     if (!p) {
-      el.createDiv({ cls: "okvault-empty", text: `${f.path} is outside the okvault folder (see the plugin's settings).` });
+      el.createDiv({ cls: "okvault-empty", text: `${f.path} is outside the okvault root (see the plugin's settings).` });
+      return;
+    }
+    if (this.plugin.ignore.match(p)) {
+      el.createDiv({ cls: "okvault-empty", text: `${p} is excluded by .vaultignore: okvault does not index it.` });
       return;
     }
     if (!isConceptPath(p)) {

@@ -71,6 +71,46 @@ export function sectionOf(p: string): string {
   return i < 0 ? ROOT : p.slice(0, i);
 }
 
+/** What the bundle map leaves out: notes of these types or in these sections, and their links. */
+export interface GraphFilter {
+  hiddenTypes: Set<string>;
+  hiddenSections: Set<string>;
+}
+
+/** The concepts a filter keeps. Links to dropped notes vanish with them in buildBundle. */
+export function filterNotes<T extends NoteInput>(notes: T[], f: GraphFilter): T[] {
+  return notes.filter(
+    (n) => isConceptPath(n.path) && !f.hiddenTypes.has(n.type || UNTYPED) && !f.hiddenSections.has(sectionOf(n.path)),
+  );
+}
+
+/** Every type and section in the vault, filtered or not: the filter controls and the colours come from it. */
+export interface Catalog {
+  types: string[]; // by frequency, then name (as Bundle.types)
+  typeCount: Map<string, number>;
+  sections: { name: string; count: number }[]; // in map order
+  total: number;
+}
+
+export function catalog(notes: NoteInput[]): Catalog {
+  const typeCount = new Map<string, number>();
+  const secCount = new Map<string, number>();
+  let total = 0;
+  for (const n of notes) {
+    if (!isConceptPath(n.path)) continue;
+    total++;
+    const t = n.type || UNTYPED;
+    typeCount.set(t, (typeCount.get(t) ?? 0) + 1);
+    const s = sectionOf(n.path);
+    secCount.set(s, (secCount.get(s) ?? 0) + 1);
+  }
+  const types = [...typeCount.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([t]) => t);
+  const sections = [...secCount.entries()]
+    .sort(([a], [b]) => (a === ROOT ? -1 : b === ROOT ? 1 : a.localeCompare(b)))
+    .map(([name, count]) => ({ name, count }));
+  return { types, typeCount, sections, total };
+}
+
 export function buildBundle(
   notes: NoteInput[],
   reasons: Map<string, string[]>,
