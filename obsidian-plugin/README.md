@@ -51,7 +51,9 @@ Search and FAQ answers come from okvault itself, over MCP (`okvault serve --port
 
 ## Install
 
-From the repository root:
+**From a release.** Each [GitHub release](https://github.com/baschen-dev/okvault/releases) carries `main.js`, `manifest.json` and `styles.css`. Put the three files in `<vault>/.obsidian/plugins/okvault/`, or install with [BRAT](https://github.com/TfTHacker/obsidian42-brat) (*Add beta plugin*, `baschen-dev/okvault`), which also updates it.
+
+**From source.** From the repository root:
 
 ```sh
 just plugin          # or: just win::plugin
@@ -93,5 +95,14 @@ npm run check      # tsc
 npm test           # MCP client, bundle model, and sync/verify in a scratch repo with a bare remote
 node --experimental-strip-types test/preview/serve.ts   # views in a browser, http://127.0.0.1:8790/
 ```
+
+CI builds and tests the plugin on every pull request; the build is attached to the run as the `okvault-obsidian` artifact.
+
+### Releasing
+
+1. `just plugin-version 0.3.0` (or `just win::plugin-version 0.3.0`) sets the version in `manifest.json`, `package.json` and `package-lock.json`, and adds it to `versions.json` with the plugin's `minAppVersion`. Merge that change.
+2. Tag `main` with the same version: `git tag v0.3.0 && git push origin v0.3.0`.
+
+The `release` workflow checks that the tag matches `manifest.json`, runs the tests, builds, and publishes the release with generated notes. If you made the release by hand (`gh release create`), it replaces the assets with the CI build.
 
 `npm test` builds okvault from `../cmd/okvault` unless `OKVAULT_BIN` points at a binary; the preview needs `OKVAULT_BIN` or runs `go run`. The preview loads the real view code with a small stub of the Obsidian API. It is for checking layout and does not replace trying the plugin in Obsidian.
