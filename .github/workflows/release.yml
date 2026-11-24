@@ -2,6 +2,10 @@
 # is pushed. The release carries main.js, manifest.json and styles.css as separate
 # assets, the layout Obsidian and BRAT install from. Bump the version first with
 # `just plugin-version X.Y.Z`; the tag must match obsidian-plugin/manifest.json.
+#
+# Obsidian's community directory downloads from the release whose tag is exactly
+# the manifest version (X.Y.Z, no "v"), so the same files are also published under
+# that tag, as a release that is not marked latest.
 name: release
 
 on:
@@ -38,7 +42,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           want="${TAG#v}"
-          for f in manifest.json package.json; do
+          for f in manifest.json package.json ../manifest.json; do
             got=$(node -p "require('./$f').version")
             if [ "$got" != "$want" ]; then
               echo "::error file=obsidian-plugin/$f::version is $got but the tag is $TAG; run 'just plugin-version $want', merge, then tag again"
@@ -46,9 +50,9 @@ jobs:
             fi
           done
           min=$(node -p "require('./manifest.json').minAppVersion")
-          rec=$(node -p "require('./versions.json')['$want'] ?? ''")
+          rec=$(node -p "require('../versions.json')['$want'] ?? ''")
           if [ "$rec" != "$min" ]; then
-            echo "::error file=obsidian-plugin/versions.json::versions.json has no \"$want\": \"$min\" entry; run 'just plugin-version $want'"
+            echo "::error file=versions.json::versions.json has no \"$want\": \"$min\" entry; run 'just plugin-version $want'"
             exit 1
           fi
       - run: npm ci
@@ -66,4 +70,15 @@ jobs:
             gh release upload "$TAG" main.js manifest.json styles.css --clobber
           else
             gh release create "$TAG" main.js manifest.json styles.css --verify-tag --generate-notes --title "$TAG"
+          fi
+      - name: Publish for Obsidian's community directory
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          store="${TAG#v}"
+          if gh release view "$store" >/dev/null 2>&1; then
+            gh release upload "$store" main.js manifest.json styles.css --clobber
+          else
+            gh release create "$store" main.js manifest.json styles.css --target "$GITHUB_SHA" --latest=false               --title "Obsidian plugin $store"               --notes "The okvault Obsidian plugin $store for Obsidian's community plugin directory. Release notes: [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG)."
           fi

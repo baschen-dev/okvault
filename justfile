@@ -12,7 +12,7 @@ default:
 
 # Build the binary into bin/
 build:
-    go build -ldflags "-X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/okvault ./cmd/okvault
+    go build -ldflags "-X main.version=$(git describe --tags --match 'v*' --always --dirty 2>/dev/null || echo dev)" -o bin/okvault ./cmd/okvault
 
 # Unit, MCP and stdio smoke tests
 test:

@@ -4,7 +4,7 @@ set shell := ["pwsh", "-NoProfile", "-Command"]
 vault := "vault"
 
 build:
-    $v = (git describe --tags --always --dirty 2>$null) ?? 'dev'; go build -ldflags "-X main.version=$v" -o bin/okvault.exe ./cmd/okvault
+    $v = (git describe --tags --match 'v*' --always --dirty 2>$null) ?? 'dev'; go build -ldflags "-X main.version=$v" -o bin/okvault.exe ./cmd/okvault
 
 test:
     go vet ./...; if ($LASTEXITCODE) { exit $LASTEXITCODE }; go test ./...
