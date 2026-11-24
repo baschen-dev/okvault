@@ -34,6 +34,7 @@ export class TeamSettingsSection {
   private previewEl!: HTMLElement;
   private saveBtn!: HTMLButtonElement;
   private saving = false;
+  private root: HTMLElement | null = null;
 
   constructor(private plugin: OkvaultPlugin) {}
 
@@ -43,8 +44,30 @@ export class TeamSettingsSection {
 
   /** Load the file (again) and draw the form into el. */
   async display(el: HTMLElement): Promise<void> {
+    this.root = el;
     await this.load();
     this.render(el);
+  }
+
+  /** The tracker in the draft, for the connections helper; null when the file cannot be edited. */
+  tracker(): TeamConfig["tracker"] | null {
+    return this.draft && !this.parseError ? this.draft.tracker : null;
+  }
+
+  /**
+   * Puts a Jira site and projects into the draft (from the connections helper)
+   * and redraws. Nothing is written: the person reviews and saves as usual.
+   */
+  applyJira(url: string, projects: string[]): boolean {
+    if (!this.draft || this.parseError || !this.root) return false;
+    const t = this.draft.tracker;
+    if (t.url.replace(/\/+$/, "") !== url.replace(/\/+$/, "")) t.api = ""; // a new site: let okvault pick the API version
+    t.kind = "jira";
+    t.url = url.replace(/\/+$/, "");
+    t.projects = projects;
+    this.render(this.root);
+    this.root.querySelector(".okvault-team-foot")?.scrollIntoView({ block: "nearest" });
+    return true;
   }
 
   private async load(): Promise<void> {

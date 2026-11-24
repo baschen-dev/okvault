@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import esbuild from "esbuild";
 import { readVaultNotes } from "../vault-notes.ts";
-import { checkConfig, lintVault } from "../../src/server.ts";
+import { checkConfig, checkConnections, lintVault } from "../../src/server.ts";
 import { parse as parseYaml } from "yaml";
 
 const here = import.meta.dirname;
@@ -84,6 +84,17 @@ createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ findings: Object.fromEntries(r.findings), error: r.error }));
   } else if (url.pathname === "/panels.js") res.writeHead(200, { "content-type": "text/javascript" }).end(panelsJs);
   else if (url.pathname === "/panels") res.writeHead(200, { "content-type": "text/html" }).end(html.replace("/app.js", "/panels.js").replace("${THEME}", ""));
+  else if (url.pathname === "/connections") {
+    // The real command on this vault (no push dry run); ?demo=1 adds a Jira site with projects.
+    const r = await checkConnections(bin ?? "okvault", vault, { pushCheck: false });
+    if (url.searchParams.get("demo") === "1" && r.result) {
+      r.result.jira = {
+        url: url.searchParams.get("jira") || "https://acme.atlassian.net", api: "3", credentials: "JIRA_API_TOKEN + JIRA_EMAIL", user: "Ada Lovelace",
+        projects: [["DATA", "Data platform"], ["OPS", "Operations"], ["PROJ", "Product"], ["SEC", "Security"], ["WEB", "Website"]].map(([key, name]) => ({ key, name })),
+      };
+    }
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(r));
+  }
   else if (url.pathname === "/settings.js") res.writeHead(200, { "content-type": "text/javascript" }).end(settingsJs);
   else if (url.pathname === "/settings") res.writeHead(200, { "content-type": "text/html" }).end(settingsHtml);
   else if (url.pathname === "/app.js") res.writeHead(200, { "content-type": "text/javascript" }).end(js);

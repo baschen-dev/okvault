@@ -165,3 +165,54 @@ export async function lintVault(binary: string, vaultDir: string): Promise<{ fin
   if (!/\d+ notes, \d+ errors, \d+ warnings/.test(r.stdout)) return { findings, error: r.stderr.split(/\r?\n/).pop() || "okvault lint did not run" };
   return { findings };
 }
+
+/** `okvault connections --json`: what this machine's credentials reach (sources only, never values). */
+export interface JiraCheck {
+  url: string;
+  api: string;
+  credentials: string;
+  user?: string;
+  projects?: { key: string; name: string }[];
+  truncated?: boolean;
+  problem?: string;
+}
+
+export interface GitHubCheck {
+  remote_name: string;
+  remote?: string;
+  repo?: string;
+  token: string;
+  user?: string;
+  can_push?: boolean;
+  api_problem?: string;
+  push?: string;
+  problem?: string;
+}
+
+export interface Connections {
+  jira?: JiraCheck;
+  git_mode: string;
+  github: GitHubCheck;
+}
+
+export async function checkConnections(
+  binary: string,
+  vaultDir: string,
+  o: { jiraUrl?: string; jiraApi?: string; pushCheck?: boolean } = {},
+): Promise<{ result?: Connections; error?: string }> {
+  const args = ["connections", "--vault", vaultDir, "--json"];
+  if (o.jiraUrl) args.push("--jira-url", o.jiraUrl);
+  if (o.jiraApi) args.push("--jira-api", o.jiraApi);
+  if (o.pushCheck === false) args.push("--no-push-check");
+  const r = await runOkvault(binary, args, vaultDir, 90_000);
+  const last = (s: string) => s.split(/\r?\n/).filter((l) => l.trim() && !l.startsWith("time=")).pop() ?? "";
+  if (r.code !== 0) {
+    const msg = last(r.stderr) || last(r.stdout) || `okvault connections exited ${r.code}`;
+    return { error: /unknown command/.test(msg) ? "this okvault is too old for connection checks; update it" : msg };
+  }
+  try {
+    return { result: JSON.parse(r.stdout) as Connections };
+  } catch {
+    return { error: `unexpected output from okvault connections: ${r.stdout.slice(0, 200)}` };
+  }
+}

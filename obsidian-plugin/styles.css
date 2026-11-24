@@ -341,3 +341,23 @@
 .okvault-gap-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .okvault-gap-actions button { font-size: var(--font-ui-smaller); }
 .okvault-gaps-log { margin-top: 12px; }
+
+/* ---------- connections (this machine) ---------- */
+
+.okvault-conn-settings { margin-top: 24px; }
+.okvault-conn { margin-top: 10px; }
+.okvault-conn .okvault-kv { margin: 2px 0; }
+.okvault-conn-state { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.okvault-conn-state svg { width: 14px; height: 14px; }
+.okvault-conn-state.is-ok { color: #0ca30c; }
+.okvault-conn-state.is-bad { color: #d03b3b; }
+.okvault-t-error { color: var(--text-error); }
+.okvault-conn code { font-size: var(--font-ui-smaller); }
+.okvault-projects { margin-top: 10px; border-top: 1px solid var(--background-modifier-border); padding-top: 8px; }
+.okvault-projects-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.okvault-projects-head input { max-width: 180px; }
+.okvault-project-list { max-height: 240px; overflow: auto; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); padding: 4px 6px; }
+.okvault-project { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: var(--font-ui-small); cursor: pointer; }
+.okvault-project-key { font-family: var(--font-monospace); min-width: 70px; }
+.okvault-project.is-missing .okvault-project-key { font-style: italic; }
+.okvault-projects-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
