@@ -20,3 +20,6 @@
 #   base: main                      # pr: target branch (default: the remote's default)
 #   pull_interval: 5m               # push/pr: fetch + rebase + push while serving; "0" = after writes only
 #   commit_edits: 10m               # also commit Obsidian edits after this much quiet
+
+git:
+  mode: push
