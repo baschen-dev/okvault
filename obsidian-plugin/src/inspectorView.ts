@@ -130,7 +130,8 @@ export class InspectorView extends ItemView {
     head.createDiv({ cls: "okvault-insp-title", text: (fm.title as string) || this.detail?.title || f.basename });
     const meta = head.createDiv({ cls: "okvault-insp-meta" });
     meta.createSpan({ cls: "okvault-type", text: (fm.type as string) || "untyped" });
-    if (fm.status) meta.createSpan({ cls: `okvault-type okvault-status-chip-${fm.status}`, text: String(fm.status) });
+    // <s> strikes a deprecated note's status through by itself.
+    if (fm.status) meta.createEl(fm.status === "deprecated" ? "s" : "span", { cls: `okvault-type okvault-status-chip-${fm.status}`, text: String(fm.status) });
     meta.createSpan({ cls: "okvault-path", text: p });
     if (this.offline) el.createDiv({ cls: "okvault-status okvault-status-err", text: `okvault not reachable (${this.offline}); showing what the frontmatter says.` });
 
