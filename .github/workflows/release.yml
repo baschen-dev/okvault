@@ -1,8 +1,12 @@
 # Builds the Obsidian plugin and publishes it as a GitHub release when a vX.Y.Z tag
-# is pushed. The release carries main.js, manifest.json and styles.css as separate
-# assets, the layout Obsidian and BRAT install from. Bump the version first with
-# `just plugin-version X.Y.Z`; the tag must match obsidian-plugin/manifest.json.
-# Obsidian's community directory picks up the release from the root manifest.json.
+# is pushed. Bump the version first with `just plugin-version X.Y.Z`; the tag must
+# match obsidian-plugin/manifest.json. Don't create the release by hand.
+#
+# The release is published under the bare version tag X.Y.Z, on the same commit:
+# Obsidian's community directory only installs from a release whose tag equals the
+# manifest version. vX.Y.Z stays a plain git tag for Go (go install, git describe).
+# The release carries main.js, manifest.json and styles.css as separate assets, the
+# layout Obsidian and BRAT install from.
 # The assets get build provenance attestations (gh attestation verify), and the
 # signed attestation bundle is attached to the release as okvault.intoto.jsonl.
 name: release
@@ -74,12 +78,12 @@ jobs:
           TAG: ${{ github.ref_name }}
           BUNDLE: ${{ steps.attest.outputs.bundle-path }}
         run: |
-          # A release made by hand (gh release create) also pushes the tag that runs
-          # this workflow: then only replace its assets with the CI build.
+          version="${TAG#v}"
           cp "$BUNDLE" okvault.intoto.jsonl
           assets=(main.js manifest.json styles.css okvault.intoto.jsonl)
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${assets[@]}" --clobber
+          if gh release view "$version" >/dev/null 2>&1; then
+            # A re-run: replace the assets with this build.
+            gh release upload "$version" "${assets[@]}" --clobber
           else
-            gh release create "$TAG" "${assets[@]}" --verify-tag --generate-notes --title "$TAG"
+            gh release create "$version" "${assets[@]}" --target "$GITHUB_SHA" --generate-notes --title "$version"
           fi
