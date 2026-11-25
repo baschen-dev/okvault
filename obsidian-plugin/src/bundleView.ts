@@ -4,7 +4,6 @@ import type OkvaultPlugin from "./main";
 
 export const BUNDLE_VIEW = "okvault-bundle";
 
-const SVG = "http://www.w3.org/2000/svg";
 const RADIUS = 260;
 const MAX_SLOTS = 7; // categorical slots; further types fold into "Other"
 const LABEL_LIMIT = 120; // above this many notes, titles show on hover only
@@ -67,11 +66,9 @@ export class BundleView extends ItemView {
 
     this.legendEl = root.createDiv({ cls: "okvault-legend" });
     const wrap = root.createDiv({ cls: "okvault-chart" });
-    this.svg = document.createElementNS(SVG, "svg");
-    this.svg.setAttribute("viewBox", "-470 -400 940 800");
-    this.svg.setAttribute("role", "img");
-    this.svg.setAttribute("aria-label", "Bundle map: notes grouped by section, coloured by type, with their links");
-    wrap.appendChild(this.svg);
+    this.svg = wrap.createSvg("svg", {
+      attr: { viewBox: "-470 -400 940 800", role: "img", "aria-label": "Bundle map: notes grouped by section, coloured by type, with their links" },
+    });
     this.tip = wrap.createDiv({ cls: "okvault-tip" });
     this.tip.hide();
     this.svg.addEventListener("click", (e) => {
@@ -466,10 +463,8 @@ function sectionTip(name: string, count: number, internal: number, external: num
   return d;
 }
 
-function el(tag: string, attrs: Record<string, string | number>): SVGElement {
-  const e = document.createElementNS(SVG, tag);
-  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
-  return e;
+function el(tag: keyof SVGElementTagNameMap, attrs: Record<string, string | number>): SVGElement {
+  return createSvg(tag, { attr: attrs });
 }
 
 /** Text on the right half reads outward from the start, on the left half it ends at the point. */

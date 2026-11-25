@@ -52,6 +52,8 @@ Search and FAQ answers come from okvault itself, over MCP (`okvault serve --port
 
 ## Install
 
+**From Obsidian.** In Obsidian go to *Settings → Community plugins → Browse*, search for **okvault**, then install and enable it. It needs the `okvault` binary (see [The okvault server](#the-okvault-server)). The plugin is also listed in the [community directory](https://community.obsidian.md/plugins/okvault).
+
 **From a release.** Each [GitHub release](https://github.com/baschen-dev/okvault/releases) carries `main.js`, `manifest.json` and `styles.css`. Put the three files in `<vault>/.obsidian/plugins/okvault/`, or install with [BRAT](https://github.com/TfTHacker/obsidian42-brat) (*Add beta plugin*, `baschen-dev/okvault`), which also updates it.
 
 **From source.** From the repository root:
@@ -63,6 +65,18 @@ just plugin          # or: just win::plugin
 This builds the plugin into `vault/.obsidian/plugins/okvault/`; the folder is gitignored. Then in Obsidian go to *Settings → Community plugins* and enable **okvault**. The plugin is not enabled for the team in git, so each person turns it on themselves.
 
 For another vault, copy `main.js`, `manifest.json` and `styles.css` from `obsidian-plugin/` (after `npm ci && npm run build`) into `<vault>/.obsidian/plugins/okvault/`.
+
+### What the plugin can access
+
+Obsidian's directory scan flags these, so here is why the plugin needs each one:
+
+- **Running programs** (`child_process`): it starts `okvault serve` for this vault, and runs `okvault sync`, `verify`, `lint` and `connections` when you press the matching buttons. It runs only the okvault binary set in its settings.
+- **Files outside the vault API** (`fs`): before saving team settings, it writes the draft `.okvault.yaml` to a temporary folder so okvault can check it, then deletes the folder.
+- **Every file in the vault**: the bundle map, note inspector and ticket workspace read all notes' metadata from Obsidian's cache.
+- **Network**: it talks only to the okvault server at *Server URL*, by default `http://127.0.0.1:8766/mcp` on this machine. okvault itself reaches Jira and GitHub when the team has set them up.
+- **base64**: this comes from the bundled `yaml` library, which supports YAML's `!!binary` type. The plugin does not use it.
+
+Release assets carry GitHub build provenance attestations: `gh attestation verify main.js --repo baschen-dev/okvault`.
 
 ## The okvault server
 
@@ -112,8 +126,6 @@ The `release` workflow checks that the tag matches both manifests, runs the test
 
 ### Community plugin directory
 
-Obsidian's [community directory](https://community.obsidian.md) reads `manifest.json` and `versions.json` at the root of `main`, and downloads the plugin from the release tagged exactly with the manifest version (`0.3.1`, no `v`). So the release workflow also publishes the same three files under that tag, as a release that is not marked latest. Go builds use only the `v*` tags (`git describe --match 'v*'`).
-
-To list the plugin, sign in at community.obsidian.md with an Obsidian account, link your GitHub account, and add `baschen-dev/okvault`. Review is automatic; fix any problems it reports by releasing a new version.
+okvault is listed in Obsidian's [community directory](https://community.obsidian.md/plugins/okvault). The directory reads `manifest.json` and `versions.json` at the root of `main` (`just plugin-version` writes both), and installs from the GitHub release with that version; the `v` prefix on tags is fine. So a merged version bump plus its `vX.Y.Z` tag is all a store update needs. The directory scans each release; its results are on the plugin's *Scorecard* tab.
 
 `npm test` builds okvault from `../cmd/okvault` unless `OKVAULT_BIN` points at a binary; the preview needs `OKVAULT_BIN` or runs `go run`. The preview loads the real view code with a small stub of the Obsidian API. It is for checking layout and does not replace trying the plugin in Obsidian.

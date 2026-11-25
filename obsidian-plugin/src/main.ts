@@ -140,7 +140,7 @@ export default class OkvaultPlugin extends Plugin {
     this.addCommand({ id: "sync", name: "Sync now (commit edits, rebase, push, update the pull request)", callback: () => this.sync() });
     this.addCommand({
       id: "verify",
-      name: "Mark this note as checked (okvault verify)",
+      name: "Mark this note as checked",
       checkCallback: (checking) => {
         const f = this.app.workspace.getActiveFile();
         const p = f ? this.fromObsidian(f.path) : null;
@@ -151,7 +151,7 @@ export default class OkvaultPlugin extends Plugin {
     });
     this.addCommand({
       id: "reconnect",
-      name: "Reconnect to okvault (start it if needed)",
+      name: "Reconnect to the server (start it if needed)",
       callback: async () => {
         const ok = await this.connect(true);
         new Notice(ok ? `okvault connected (${this.settings.serverUrl})` : `okvault: ${this.lastError}`);

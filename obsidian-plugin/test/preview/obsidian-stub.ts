@@ -22,6 +22,14 @@ P.hide = function () { this.style.display = "none"; };
 P.appendText = function (t: string) { this.append(document.createTextNode(t)); };
 P.show = function () { this.style.display = ""; };
 (globalThis as any).createDiv = (o?: Attrs) => document.createElement("div").createDiv(o);
+const svg = (tag: string, o: { attr?: Record<string, string | number> } = {}, parent?: Element) => {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(o.attr ?? {})) e.setAttribute(k, String(v));
+  parent?.appendChild(e);
+  return e;
+};
+(globalThis as any).createSvg = (tag: string, o?: { attr?: Record<string, string | number> }) => svg(tag, o);
+P.createSvg = function (tag: string, o?: { attr?: Record<string, string | number> }) { return svg(tag, o, this); };
 
 export class Component {
   registerEvent(_: unknown) {}

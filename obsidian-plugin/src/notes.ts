@@ -30,7 +30,7 @@ export function templateFor(plugin: OkvaultPlugin, type: string): Template {
  */
 export async function createNote(
   plugin: OkvaultPlugin,
-  o: { template: Template; title: string; folder: string; edit?: (fm: Record<string, any>) => void; body?: string },
+  o: { template: Template; title: string; folder: string; edit?: (fm: Record<string, unknown>) => void; body?: string },
 ): Promise<{ file?: TFile; rel: string; error?: string }> {
   const app = plugin.app;
   const rel = notePath(o.folder, o.title);
