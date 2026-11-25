@@ -256,7 +256,11 @@ export class TeamSettingsSection {
   private changed(): void {
     const c = this.draft!;
     const errs = checkTeamConfig(c);
-    for (const [k, e] of this.errorEls) e.setText(errs.get(k) ?? "");
+    for (const [k, e] of this.errorEls) {
+      const msg = errs.get(k) ?? "";
+      e.setText(msg);
+      e.closest(".okvault-owner-row")?.toggleClass("okvault-has-error", msg !== "");
+    }
     let out = this.src;
     let dirty = false;
     try {

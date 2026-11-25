@@ -100,7 +100,7 @@ export class InspectorView extends ItemView {
     this.render();
   }
 
-  private fm(): Record<string, any> {
+  private fm(): Record<string, unknown> {
     return (this.file && this.app.metadataCache.getFileCache(this.file)?.frontmatter) ?? {};
   }
 
@@ -143,7 +143,7 @@ export class InspectorView extends ItemView {
 
   // ---- trust ----
 
-  private renderTrust(el: HTMLElement, fm: Record<string, any>, p: string): void {
+  private renderTrust(el: HTMLElement, fm: Record<string, unknown>, p: string): void {
     const t = trustOf(fm);
     const card = this.card(el, "Trust");
     const row = (icon: string, text: string, cls = "") => {
@@ -178,7 +178,7 @@ export class InspectorView extends ItemView {
 
   // ---- owners and tickets ----
 
-  private renderOwnership(el: HTMLElement, fm: Record<string, any>): void {
+  private renderOwnership(el: HTMLElement, fm: Record<string, unknown>): void {
     const card = this.card(el, "Owners and tickets");
     const own = Array.isArray(fm.owners) ? (fm.owners as string[]) : typeof fm.owners === "string" ? [fm.owners] : [];
     const owners = this.detail?.owners ?? own;
@@ -206,7 +206,7 @@ export class InspectorView extends ItemView {
 
   // ---- format (okvault lint) ----
 
-  private renderFormat(el: HTMLElement, fm: Record<string, any>, p: string): void {
+  private renderFormat(el: HTMLElement, fm: Record<string, unknown>, p: string): void {
     const card = this.card(el, "Format");
     const lint = this.plugin.lint;
     const findings: Finding[] = lint.findings.get(p) ?? [];
@@ -233,7 +233,7 @@ export class InspectorView extends ItemView {
   }
 
   /** Quick fixes for the lint messages that have an obvious one. */
-  private fixFor(r: HTMLElement, f: Finding, fm: Record<string, any>, _p: string): void {
+  private fixFor(r: HTMLElement, f: Finding, fm: Record<string, unknown>, _p: string): void {
     const m = f.message;
     if (m.includes("no `type`")) {
       const types = [...new Set(this.plugin.localNotes().map((n) => n.type).filter(Boolean))].sort();

@@ -44,6 +44,8 @@ export function emptyConfig(): TeamConfig {
 }
 
 const str = (v: unknown): string => (v === null || v === undefined ? "" : String(v).trim());
+const obj = (v: unknown): Record<string, unknown> =>
+  v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 const list = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(str).filter(Boolean) : typeof v === "string" ? splitList(v) : [];
 
@@ -57,9 +59,9 @@ export function readTeamConfig(src: string): { config: TeamConfig; error?: strin
   const c = emptyConfig();
   const doc = parseDocument(src);
   if (doc.errors.length) return { config: c, error: doc.errors[0].message };
-  const js = (doc.toJS() ?? {}) as Record<string, any>;
+  const js = (doc.toJS() ?? {}) as Record<string, unknown>;
   if (typeof js !== "object" || Array.isArray(js)) return { config: c, error: "the file is not a YAML map" };
-  const g = js.git ?? {};
+  const g = obj(js.git);
   const mode = str(g.mode).toLowerCase();
   c.git = {
     mode: (["commit", "push", "pr"].includes(mode) ? mode : "off") as GitMode,
@@ -70,7 +72,7 @@ export function readTeamConfig(src: string): { config: TeamConfig; error?: strin
     commit_edits: str(g.commit_edits),
   };
   c.review_interval = str(js.review_interval);
-  const t = js.tracker ?? {};
+  const t = obj(js.tracker);
   const kind = str(t.kind).toLowerCase();
   c.tracker = {
     kind: kind === "jira" || kind === "none" ? kind : "",
