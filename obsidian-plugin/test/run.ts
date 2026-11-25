@@ -14,6 +14,7 @@ import { fillTemplate, folderFor, kebab, mergeAliases, normalizeKey, notePath, r
 import { applyTeamConfig, checkTeamConfig, emptyConfig, readTeamConfig, type TeamConfig } from "../src/teamConfig.ts";
 import { buildBundle, catalog, filterNotes } from "../src/bundle.ts";
 import { VaultIgnore, normalizeRoot } from "../src/paths.ts";
+import { DEFAULT_SETTINGS, cleanSetting, rootProblem } from "../src/settingsModel.ts";
 import { readVaultNotes } from "./vault-notes.ts";
 
 const VAULT = join(import.meta.dirname, "..", "..", "vault");
@@ -61,6 +62,20 @@ check("angles in (0, 2π) and distinct", angles.every((a) => a > 0 && a < 2 * Ma
   const noSec = buildBundle(filterNotes(notes, { hiddenTypes: new Set(), hiddenSections: new Set(["faq"]) }), new Map());
   check("hidden section has no arc", !noSec.sections.some((s) => s.name === "faq") && noSec.sections.length === b.sections.length - 1);
   check("hidden section's notes gone", ![...noSec.nodes.keys()].some((p) => p.startsWith("faq/")));
+}
+
+// ---- plugin settings form ----
+{
+  check("empty server URL falls back to the default", cleanSetting("serverUrl", "  ") === DEFAULT_SETTINGS.serverUrl);
+  check("server URL is trimmed", cleanSetting("serverUrl", " http://x/mcp ") === "http://x/mcp");
+  check("empty binary falls back to okvault", cleanSetting("binaryPath", "") === "okvault");
+  check("toggle is a boolean", cleanSetting("autoStart", true) === true && cleanSetting("autoStart", "yes") === false);
+  check("versioning is follow or off", cleanSetting("versioning", "off") === "off" && cleanSetting("versioning", "bogus") === "follow");
+  check("root is normalized", cleanSetting("vaultFolder", "./vault/") === "vault" && cleanSetting("vaultFolder", "/") === "");
+  check("root leaving the vault is not stored", cleanSetting("vaultFolder", "../x") === undefined);
+  check("unknown keys are not stored", cleanSetting("graphHiddenTypes", ["FAQ"]) === undefined);
+  const has = (p: string) => p === "vault";
+  check("root problems", rootProblem("..", has).includes("inside") && rootProblem("nope", has).includes("No folder nope/") && rootProblem("vault/", has) === "" && rootProblem("", has) === "");
 }
 
 // ---- okvault root and .vaultignore ----

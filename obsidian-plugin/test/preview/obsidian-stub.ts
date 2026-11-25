@@ -65,7 +65,59 @@ export class Notice {
   constructor(msg: string) { console.log("Notice:", msg); const n = document.body.createDiv({ cls: "preview-notice", text: msg }); setTimeout(() => n.remove(), 4000); }
   hide() {}
 }
-export class PluginSettingTab {}
+export class PluginSettingTab {
+  containerEl = document.createElement("div");
+  constructor(public app: any, public plugin: any) {}
+}
+export class SettingPage {
+  containerEl = document.createElement("div");
+  title = "";
+}
+
+/**
+ * A rough stand-in for Obsidian 1.13's declarative settings renderer: groups,
+ * text/toggle/dropdown/folder controls (validate blocks the save and shows the
+ * message), render rows, and sub-pages opened in place with a Back button.
+ */
+export function renderDefinitions(tab: any, el: HTMLElement): void {
+  el.empty();
+  const item = (host: HTMLElement, d: any) => {
+    if (d.type === "group" || d.type === "list") {
+      if (d.heading) new Setting(host).setName(d.heading).setHeading();
+      for (const i of d.items ?? []) item(host, i);
+      return;
+    }
+    const s = new Setting(host).setName(d.name);
+    if (d.desc) s.setDesc(d.desc);
+    s.settingEl.setAttr("data-def", d.control?.key ?? d.type ?? d.name);
+    if (d.type === "page") {
+      s.settingEl.addClass("preview-page-link");
+      s.addButton((b: any) => b.setButtonText("Open ›").onClick(() => {
+        const page = d.page();
+        el.empty();
+        new Setting(el).addButton((b2: any) => b2.setButtonText("‹ Back").onClick(() => renderDefinitions(tab, el)));
+        new Setting(el).setName(page.title).setHeading();
+        el.appendChild(page.containerEl);
+        page.display();
+      }));
+      return;
+    }
+    if (d.render) { d.render(s, null); return; }
+    const c = d.control;
+    if (!c) return;
+    const err = s.descEl.createDiv({ cls: "okvault-setting-problem" });
+    const set = async (v: unknown) => {
+      const msg = c.validate ? (await c.validate(v)) ?? "" : "";
+      err.setText(msg);
+      if (!msg) await tab.setControlValue(c.key, v);
+    };
+    const cur = tab.getControlValue(c.key) ?? c.defaultValue;
+    if (c.type === "toggle") s.addToggle((t: any) => t.setValue(!!cur).onChange(set));
+    else if (c.type === "dropdown") s.addDropdown((dd: any) => dd.addOptions(c.options).setValue(String(cur)).onChange(set));
+    else s.addText((t: any) => t.setPlaceholder(c.placeholder ?? "").setValue(String(cur ?? "")).onChange(set));
+  };
+  for (const d of tab.getSettingDefinitions()) item(el, d);
+}
 type Cb<T> = (c: T) => unknown;
 export class Setting {
   settingEl: HTMLElement; infoEl: HTMLElement; nameEl: HTMLElement; descEl: HTMLElement; controlEl: HTMLElement;
@@ -77,7 +129,11 @@ export class Setting {
     this.controlEl = this.settingEl.createDiv({ cls: "setting-item-control" });
   }
   setName(n: string) { this.nameEl.setText(n); return this; }
-  setDesc(d: string) { this.descEl.prepend(document.createTextNode(d)); return this; }
+  setDesc(d: string) {
+    for (const n of [...this.descEl.childNodes]) if (n.nodeType === Node.TEXT_NODE) n.remove();
+    this.descEl.prepend(document.createTextNode(d));
+    return this;
+  }
   setHeading() { this.settingEl.addClass("setting-item-heading"); return this; }
   setClass(c: string) { this.settingEl.addClass(c); return this; }
   addText(cb: Cb<any>) {
@@ -87,8 +143,13 @@ export class Setting {
   }
   addDropdown(cb: Cb<any>) {
     const sel = this.controlEl.createEl("select") as HTMLSelectElement;
-    const d: any = { addOption: (v: string, l: string) => (sel.createEl("option", { text: l, attr: { value: v } }), d), setValue: (v: string) => ((sel.value = v), d), onChange: (f: (v: string) => void) => (sel.addEventListener("change", () => f(sel.value)), d) };
+    const d: any = { addOption: (v: string, l: string) => (sel.createEl("option", { text: l, attr: { value: v } }), d), addOptions: (o: Record<string, string>) => { for (const [v, l] of Object.entries(o)) d.addOption(v, l); return d; }, setValue: (v: string) => ((sel.value = v), d), onChange: (f: (v: string) => void) => (sel.addEventListener("change", () => f(sel.value)), d) };
     cb(d); return this;
+  }
+  addToggle(cb: Cb<any>) {
+    const inputEl = this.controlEl.createEl("input", { type: "checkbox" }) as HTMLInputElement;
+    const t: any = { setValue: (v: boolean) => ((inputEl.checked = v), t), onChange: (f: (v: boolean) => void) => (inputEl.addEventListener("change", () => f(inputEl.checked)), t) };
+    cb(t); return this;
   }
   addButton(cb: Cb<any>) {
     const b = this.controlEl.createEl("button") as HTMLButtonElement;
