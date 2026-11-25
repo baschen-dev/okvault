@@ -1,9 +1,6 @@
 // Starts and stops a local `okvault serve` for the open vault, and runs okvault
 // commands (sync, verify) in it. Desktop only. No Obsidian import, so tests run it under Node.
 import { spawn, execFile, type ChildProcess } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
 import type { GitStatus } from "./client.ts";
 
 export interface SpawnOptions {
@@ -72,9 +69,9 @@ export interface CliResult {
  * waiting on a credential prompt (okvault runs SSH in batch mode, but a
  * credential helper can still block).
  */
-export function runOkvault(binary: string, args: string[], cwd: string, timeoutMs = 120_000): Promise<CliResult> {
+export function runOkvault(binary: string, args: string[], cwd: string | undefined, timeoutMs = 120_000, input?: string): Promise<CliResult> {
   return new Promise((resolve) => {
-    execFile(binary, args, { cwd, timeout: timeoutMs, windowsHide: true, maxBuffer: 4 << 20 }, (err, stdout, stderr) => {
+    const child = execFile(binary, args, { cwd, timeout: timeoutMs, windowsHide: true, maxBuffer: 4 << 20 }, (err, stdout, stderr) => {
       const e = err as (NodeJS.ErrnoException & { code?: number | string; killed?: boolean }) | null;
       let code = 0;
       if (e) code = typeof e.code === "number" ? e.code : 1;
@@ -82,6 +79,9 @@ export function runOkvault(binary: string, args: string[], cwd: string, timeoutM
       else if (e && typeof e.code === "string") stderr = `${stderr}\ncould not run ${binary}: ${e.message}`;
       resolve({ code, stdout: String(stdout), stderr: String(stderr).trim() });
     });
+    // A binary that fails to start closes stdin early; the callback above reports that.
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(input ?? "");
   });
 }
 
@@ -112,30 +112,29 @@ export async function verifyNote(binary: string, vaultDir: string, path: string,
 }
 
 /**
- * Has okvault itself check a draft .okvault.yaml: lint an empty vault holding
- * only that file, so the errors are okvault's own (unknown keys, bad intervals...).
- * Returns the problems; empty means okvault accepts it.
+ * Has okvault itself check a draft .okvault.yaml (`okvault lint --config -`,
+ * the draft on stdin), so the errors are okvault's own (unknown keys, bad
+ * intervals...). Nothing is written to disk. Returns the problems; empty means
+ * okvault accepts it.
  */
 export async function checkConfig(binary: string, yamlText: string): Promise<{ errors: string[]; unavailable?: string }> {
-  const dir = mkdtempSync(join(tmpdir(), "okvault-config-"));
-  try {
-    writeFileSync(join(dir, ".okvault.yaml"), yamlText);
-    const r = await runOkvault(binary, ["lint", "--vault", dir], dir, 20_000);
-    // "error   .okvault.yaml: msg", possibly followed by indented detail lines.
-    const errors: string[] = [];
-    for (const l of r.stdout.split(/\r?\n/)) {
-      if (/^error\s/.test(l)) errors.push(l.replace(/^error\s+/, "").replace(/^\.okvault\.yaml:\s*/, ""));
-      else if (/^\s+\S/.test(l) && errors.length) errors[errors.length - 1] += " " + l.trim();
-    }
-    for (let i = 0; i < errors.length; i++) {
-      // yaml.v3's "field token not found in type config.Config" means an unknown key.
-      errors[i] = errors[i].replace(/yaml: unmarshal errors: line (\d+): field (\S+) not found in type \S+/, "line $1: unknown key \"$2\"");
-    }
-    if (r.code !== 0 && !errors.length) return { errors: [], unavailable: r.stderr.split(/\r?\n/).pop() || `okvault lint exited ${r.code}` };
-    return { errors };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+  const r = await runOkvault(binary, ["lint", "--config", "-"], undefined, 20_000, yamlText);
+  // "error   .okvault.yaml: msg", possibly followed by indented detail lines.
+  const errors: string[] = [];
+  for (const l of r.stdout.split(/\r?\n/)) {
+    if (/^error\s/.test(l)) errors.push(l.replace(/^error\s+/, "").replace(/^\.okvault\.yaml:\s*/, ""));
+    else if (/^\s+\S/.test(l) && errors.length) errors[errors.length - 1] += " " + l.trim();
   }
+  for (let i = 0; i < errors.length; i++) {
+    // yaml.v3's "field token not found in type config.Config" means an unknown key.
+    errors[i] = errors[i].replace(/yaml: unmarshal errors: line (\d+): field (\S+) not found in type \S+/, "line $1: unknown key \"$2\"");
+  }
+  if (r.code !== 0 && !errors.length) {
+    const last = r.stderr.split(/\r?\n/).pop() ?? "";
+    if (last.includes("-config")) return { errors: [], unavailable: "this okvault is too old to check settings (needs `okvault lint --config`); update it" };
+    return { errors: [], unavailable: last || `okvault lint exited ${r.code}` };
+  }
+  return { errors };
 }
 
 export interface Finding {

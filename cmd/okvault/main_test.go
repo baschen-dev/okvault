@@ -190,3 +190,28 @@ func TestHTTPServe(t *testing.T) {
 		t.Fatalf("serve: %v", err)
 	}
 }
+
+// TestLintConfigStdin: lint --config - checks a draft .okvault.yaml from stdin,
+// in lint's own output format, without a vault.
+func TestLintConfigStdin(t *testing.T) {
+	for _, c := range []struct {
+		name, src, want string
+		fail            bool
+	}{
+		{"valid", "git:\n  mode: push\nreview_interval: 30d\n", "0 errors", false},
+		{"empty", "# only a comment\n", "0 errors", false},
+		{"unknown key", "token: secret\n", "error   .okvault.yaml: yaml: unmarshal errors:", true},
+		{"bad interval", "review_interval: soon\n", "error   .okvault.yaml: review_interval:", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var out strings.Builder
+			err := lint([]string{"--config", "-"}, strings.NewReader(c.src), &out)
+			if (err != nil) != c.fail {
+				t.Fatalf("err = %v, want failure %v; output:\n%s", err, c.fail, out.String())
+			}
+			if !strings.Contains(out.String(), c.want) {
+				t.Fatalf("output %q does not contain %q", out.String(), c.want)
+			}
+		})
+	}
+}

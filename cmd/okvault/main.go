@@ -42,7 +42,7 @@ Usage:
                                                 http://HOST:PORT/mcp (default 127.0.0.1:8765)
   okvault ask    [--vault DIR] QUESTION...                                  FAQ fast answer
   okvault search [--vault DIR] [--type T] [--tag T] [--limit N] QUERY...    ranked search
-  okvault lint   [--vault DIR] [--strict]                                   OKF conformance check
+  okvault lint   [--vault DIR] [--strict] [--config FILE|-]                 OKF conformance check
   okvault index  [--vault DIR]                                              regenerate index.md files, repair log.md
   okvault ticket [--vault DIR] KEY                                          ticket + related notes
   okvault review [--vault DIR] [--owner O] [--reason R]                     notes needing a person
@@ -80,7 +80,7 @@ func main() {
 	case "search":
 		err = searchCmd(args, os.Stdout)
 	case "lint":
-		err = lint(args, os.Stdout)
+		err = lint(args, os.Stdin, os.Stdout)
 	case "index":
 		err = index(args, os.Stdout)
 	case "ticket":
@@ -380,11 +380,15 @@ func printHits(w io.Writer, hits []search.Hit) {
 	}
 }
 
-func lint(args []string, w io.Writer) error {
+func lint(args []string, stdin io.Reader, w io.Writer) error {
 	fs := flag.NewFlagSet("lint", flag.ExitOnError)
 	dir := fs.String("vault", defaultVault(), "vault directory")
 	strict := fs.Bool("strict", false, "fail on warnings too")
+	cfgFile := fs.String("config", "", "check only this "+config.File+" (- reads it from stdin), not a vault")
 	_ = fs.Parse(args)
+	if *cfgFile != "" {
+		return lintConfig(*cfgFile, stdin, w)
+	}
 	v, err := vault.Open(*dir)
 	if err != nil {
 		return err
@@ -403,6 +407,28 @@ func lint(args []string, w io.Writer) error {
 	if errs > 0 || (*strict && warns > 0) {
 		return fmt.Errorf("lint failed")
 	}
+	return nil
+}
+
+// lintConfig checks a draft .okvault.yaml the way lint checks the vault's own,
+// with the same output, so an editor can validate it before writing it.
+func lintConfig(path string, stdin io.Reader, w io.Writer) error {
+	var src []byte
+	var err error
+	if path == "-" {
+		src, err = io.ReadAll(stdin)
+	} else {
+		src, err = os.ReadFile(path)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := config.Parse(src); err != nil {
+		fmt.Fprintf(w, "%-7s %s: %s\n", vault.Error, config.File, err)
+		fmt.Fprintln(w, "1 errors, 0 warnings")
+		return fmt.Errorf("lint failed")
+	}
+	fmt.Fprintln(w, "0 errors, 0 warnings")
 	return nil
 }
 
