@@ -119,13 +119,13 @@ CI builds and tests the plugin on every pull request; the build is attached to t
 
 ### Releasing
 
-1. `just plugin-version 0.3.1` (or `just win::plugin-version 0.3.1`) sets the version in `manifest.json`, `package.json` and `package-lock.json`, copies `manifest.json` to the repository root, and adds the version to the root `versions.json` with the plugin's `minAppVersion`. Merge that change.
-2. Tag `main` with the same version: `git tag v0.3.1 && git push origin v0.3.1`.
+1. `just plugin-version 0.4.2` (or `just win::plugin-version 0.4.2`) sets the version in `manifest.json`, `package.json` and `package-lock.json`, copies `manifest.json` to the repository root, and adds the version to the root `versions.json` with the plugin's `minAppVersion`. Merge that change.
+2. Tag `main` with the same version: `git tag v0.4.2 && git push origin v0.4.2`. Don't create the release yourself.
 
-The `release` workflow checks that the tag matches both manifests, runs the tests, builds, and publishes the release with generated notes. If you made the release by hand (`gh release create`), it replaces the assets with the CI build.
+The `release` workflow checks that the tag matches both manifests, runs the tests, builds, and publishes the release with generated notes under the bare version tag (`0.4.2`) on the same commit. That is the one release per version: Obsidian's directory only installs from a release tagged exactly with the manifest version, while `v0.4.2` stays a plain git tag for Go (`go install …@v0.4.2`, `git describe`). Re-running the workflow replaces the release's assets.
 
 ### Community plugin directory
 
-okvault is listed in Obsidian's [community directory](https://community.obsidian.md/plugins/okvault). The directory reads `manifest.json` and `versions.json` at the root of `main` (`just plugin-version` writes both), and installs from the GitHub release with that version; the `v` prefix on tags is fine. So a merged version bump plus its `vX.Y.Z` tag is all a store update needs. The directory scans each release; its results are on the plugin's *Scorecard* tab.
+okvault is listed in Obsidian's [community directory](https://community.obsidian.md/plugins/okvault). The directory reads `manifest.json` and `versions.json` at the root of `main` (`just plugin-version` writes both), and installs from the GitHub release tagged exactly with that version (no `v`). So a merged version bump plus its `vX.Y.Z` tag is all a store update needs; the workflow publishes the release the directory expects. If the directory doesn't notice a new version, use *Check for new releases* on the plugin's page under your community.obsidian.md account. The directory scans each release; its results are on the plugin's *Scorecard* tab.
 
 `npm test` builds okvault from `../cmd/okvault` unless `OKVAULT_BIN` points at a binary; the preview needs `OKVAULT_BIN` or runs `go run`. The preview loads the real view code with a small stub of the Obsidian API. It is for checking layout and does not replace trying the plugin in Obsidian.
