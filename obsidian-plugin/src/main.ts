@@ -553,7 +553,7 @@ export default class OkvaultPlugin extends Plugin {
   /** Wraps ticket keys in a text node with links to the ticket workspace. */
   private linkTickets(t: Text): void {
     const text = t.textContent ?? "";
-    const frag = document.createDocumentFragment();
+    const frag = createFragment();
     let last = 0;
     for (const m of text.matchAll(TICKET_KEY)) {
       const i = m.index ?? 0;
