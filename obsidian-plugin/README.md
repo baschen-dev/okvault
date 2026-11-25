@@ -70,8 +70,7 @@ For another vault, copy `main.js`, `manifest.json` and `styles.css` from `obsidi
 
 Obsidian's directory scan flags these, so here is why the plugin needs each one:
 
-- **Running programs** (`child_process`): it starts `okvault serve` for this vault, and runs `okvault sync`, `verify`, `lint` and `connections` when you press the matching buttons. It runs only the okvault binary set in its settings.
-- **Files outside the vault API** (`fs`): before saving team settings, it writes the draft `.okvault.yaml` to a temporary folder so okvault can check it, then deletes the folder.
+- **Running programs** (`child_process`): it starts `okvault serve` for this vault, and runs `okvault sync`, `verify`, `lint` and `connections` when you press the matching buttons. It runs only the okvault binary set in its settings. Team settings are checked by piping the draft `.okvault.yaml` to `okvault lint --config -`, so the plugin never touches files outside the vault API (okvault 0.4.4 or later; an older okvault says it is too old to check settings).
 - **Every file in the vault**: the bundle map, note inspector and ticket workspace read all notes' metadata from Obsidian's cache.
 - **Network**: it talks only to the okvault server at *Server URL*, by default `http://127.0.0.1:8766/mcp` on this machine. okvault itself reaches Jira and GitHub when the team has set them up.
 - **base64**: this comes from the bundled `yaml` library, which supports YAML's `!!binary` type. The plugin does not use it.

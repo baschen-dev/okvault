@@ -175,6 +175,7 @@ okvault serve  [--vault DIR] [--read-only] [--author NAME] [--no-watch] [--git o
 okvault ask    [--vault DIR] [--json] QUESTION...
 okvault search [--vault DIR] [--type T] [--tag T] [--limit N] [--json] QUERY...
 okvault lint   [--vault DIR] [--strict]      # OKF conformance (errors) + hygiene (warnings)
+okvault lint   --config FILE|-               # check only a .okvault.yaml (- reads stdin), no vault needed
 okvault index  [--vault DIR]                 # regenerate okvault-owned index.md files, repair log.md after merges
 okvault ticket [--vault DIR] [--json] KEY    # ticket + related notes
 okvault review [--vault DIR] [--owner O] [--reason R] [--json]
@@ -194,4 +195,4 @@ just win::test    # Windows (PowerShell 7)
 just plugin-test  # Obsidian plugin: typecheck, MCP client against a real okvault serve
 ```
 
-CI fails if the vault fails lint or if a generated `index.md` is out of date.
+CI fails if the vault fails lint or if a generated `index.md` is out of date. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to propose changes.
