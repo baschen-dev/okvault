@@ -76,7 +76,7 @@ Obsidian's directory scan flags these, so here is why the plugin needs each one:
 - **Network**: it talks only to the okvault server at *Server URL*, by default `http://127.0.0.1:8766/mcp` on this machine. okvault itself reaches Jira and GitHub when the team has set them up.
 - **base64**: this comes from the bundled `yaml` library, which supports YAML's `!!binary` type. The plugin does not use it.
 
-Release assets carry GitHub build provenance attestations: `gh attestation verify main.js --repo baschen-dev/okvault`. Each release also has the signed bundle as `okvault.intoto.jsonl`, so you can check offline with `--bundle okvault.intoto.jsonl`.
+Release assets carry GitHub build provenance attestations: `gh attestation verify main.js --repo baschen-dev/okvault`.
 
 ## The okvault server
 

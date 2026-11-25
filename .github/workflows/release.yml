@@ -7,8 +7,9 @@
 # manifest version. vX.Y.Z stays a plain git tag for Go (go install, git describe).
 # The release carries main.js, manifest.json and styles.css as separate assets, the
 # layout Obsidian and BRAT install from.
-# The assets get build provenance attestations (gh attestation verify), and the
-# signed attestation bundle is attached to the release as okvault.intoto.jsonl.
+# The assets get build provenance attestations (gh attestation verify); the
+# community directory checks them through GitHub, so no bundle file is attached
+# (it flags extra release files Obsidian doesn't download).
 name: release
 
 on:
@@ -76,11 +77,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
         run: |
           version="${TAG#v}"
-          cp "$BUNDLE" okvault.intoto.jsonl
-          assets=(main.js manifest.json styles.css okvault.intoto.jsonl)
+          assets=(main.js manifest.json styles.css)
           if gh release view "$version" >/dev/null 2>&1; then
             # A re-run: replace the assets with this build.
             gh release upload "$version" "${assets[@]}" --clobber

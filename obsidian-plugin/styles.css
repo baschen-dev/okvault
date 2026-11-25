@@ -277,7 +277,6 @@
 .okvault-insp-title { font-weight: var(--font-semibold); font-size: var(--font-ui-medium); }
 .okvault-insp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
 .okvault-status-chip-draft { border-style: dashed; }
-.okvault-status-chip-deprecated { text-decoration-line: line-through; }
 .okvault-insp-row { display: flex; align-items: flex-start; gap: 6px; font-size: var(--font-ui-small); margin: 3px 0; }
 .okvault-insp-icon { display: inline-flex; color: var(--text-muted); flex: none; }
 .okvault-insp-icon svg { width: 14px; height: 14px; }
@@ -296,7 +295,9 @@
   padding: 0 8px;
   cursor: pointer;
 }
-.okvault-chip-link a { color: var(--text-normal); text-decoration-line: none; }
+/* Obsidian draws link underlines from these variables. */
+.okvault-chip-link { --link-decoration: none; --link-decoration-hover: none; }
+.okvault-chip-link a { color: var(--text-normal); }
 .okvault-ext { display: inline-flex; color: var(--text-muted); }
 .okvault-ext svg { width: 12px; height: 12px; }
 .okvault-finding { font-size: var(--font-ui-small); padding: 4px 6px; margin: 4px 0; border-left: 3px solid var(--okv-muted, #898781); border-radius: var(--radius-s); background: var(--background-secondary); }
@@ -314,7 +315,7 @@
 /* ---------- ticket workspace ---------- */
 
 .okvault-back { display: inline-block; margin: 4px 0 8px; font-size: var(--font-ui-small); cursor: pointer; }
-.okvault-ticket-card .okvault-card-title a { text-decoration-line: none; }
+.okvault-ticket-card .okvault-card-title { --link-decoration: none; --link-decoration-hover: none; }
 .okvault-ticket-summary { font-weight: var(--font-medium); margin: 2px 0 4px; }
 .okvault-ticket-status { font-size: var(--font-ui-smaller); border-radius: 999px; padding: 0 8px; border: 1px solid var(--background-modifier-border); }
 .okvault-cat-done { border-color: #0ca30c; }
@@ -326,7 +327,7 @@
 .okvault-record input[type="text"] { width: 100%; }
 .okvault-record input[placeholder^="Title"] { grid-column: 1 / -1; order: -1; }
 .okvault-record button { grid-column: 1 / -1; justify-self: end; }
-.okvault-ticket-key { cursor: pointer; text-decoration-line: underline; text-decoration-style: dotted; }
+.okvault-ticket-key { cursor: pointer; --link-decoration: none; --link-decoration-hover: none; border-bottom: 1px dotted currentColor; }
 
 /* ---------- knowledge gaps ---------- */
 
