@@ -39,6 +39,7 @@ const build = async (entry: string) => (await esbuild.build({
 const js = await build("app.ts");
 const settingsJs = await build("settings.ts");
 const panelsJs = await build("panels.ts");
+const settingsTabJs = await build("settings-tab.ts");
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>okvault plugin preview</title>
 <style>
@@ -95,6 +96,8 @@ createServer(async (req, res) => {
     }
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(r));
   }
+  else if (url.pathname === "/settings-tab.js") res.writeHead(200, { "content-type": "text/javascript" }).end(settingsTabJs);
+  else if (url.pathname === "/settings-tab") res.writeHead(200, { "content-type": "text/html" }).end(settingsHtml.replace("/settings.js", "/settings-tab.js").replace("${THEME}", ""));
   else if (url.pathname === "/settings.js") res.writeHead(200, { "content-type": "text/javascript" }).end(settingsJs);
   else if (url.pathname === "/settings") res.writeHead(200, { "content-type": "text/html" }).end(settingsHtml);
   else if (url.pathname === "/app.js") res.writeHead(200, { "content-type": "text/javascript" }).end(js);

@@ -1,6 +1,6 @@
 {
   "name": "okvault-obsidian",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": true,
   "description": "Obsidian plugin for okvault: FAQ search and a map of the vault's OKF bundle.",
   "license": "MIT",

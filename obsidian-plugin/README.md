@@ -36,11 +36,11 @@ An Obsidian plugin that shows the vault the way okvault's agents see it.
   - **Dismiss** hides a question the vault should not answer.
 
   Gaps an FAQ now answers drop out on their own. The questions are recorded per machine by okvault, outside the vault (see the main README). Your own searches in the FAQ panel are not counted. Agents' okvault must be recent enough to record gaps.
-- **Connections (this machine)** (*Settings → okvault*). **Check connections** runs `okvault connections`. The plugin stores no tokens: okvault finds them as it always does, and the check shows where they came from, never their values.
+- **Connections (this machine)** (*Settings → okvault → Team settings and connections*; before Obsidian 1.13, on *Settings → okvault* itself). **Check connections** runs `okvault connections`. The plugin stores no tokens: okvault finds them as it always does, and the check shows where they came from, never their values.
   - **Jira** (`JIRA_API_TOKEN`, plus `JIRA_EMAIL` on Jira Cloud): who you are signed in as, and the projects you can see as a checklist with a filter. **Use for this vault** puts the site and the selected projects into Team settings below, where you review them and press Save. Selected keys Jira no longer returns stay selected and are marked.
   - **GitHub and git:** the repository, the API token source (`GH_TOKEN`, `GITHUB_TOKEN` or `gh auth login`), whether you can push, and a `git push --dry-run` that tests git's credential manager or SSH key without sending anything.
   - Problems come with what to do, for example `gh auth login` and `gh auth setup-git`, or where to create a Jira API token. Obsidian reads environment variables when it starts, so restart it after setting one.
-- **Team settings** (*Settings → okvault*, below the plugin's own settings). This is a form for the vault's `.okvault.yaml`, which the whole team shares:
+- **Team settings** (*Settings → okvault → Team settings and connections*, below the connections check; before Obsidian 1.13, below the plugin's own settings). This is a form for the vault's `.okvault.yaml`, which the whole team shares:
   - it covers git mode, when your Obsidian edits are committed, background sync, the pull request branch, the review interval, folder owners and the ticket tracker;
   - fields appear only when they apply to the chosen mode, and each field shows problems as you type;
   - **Save** has okvault check the file (`okvault lint` on a copy) before writing it, so a typo never reaches your teammates;
