@@ -3,7 +3,8 @@
 # assets, the layout Obsidian and BRAT install from. Bump the version first with
 # `just plugin-version X.Y.Z`; the tag must match obsidian-plugin/manifest.json.
 # Obsidian's community directory picks up the release from the root manifest.json.
-# The assets get build provenance attestations (gh attestation verify).
+# The assets get build provenance attestations (gh attestation verify), and the
+# signed attestation bundle is attached to the release as okvault.intoto.jsonl.
 name: release
 
 on:
@@ -60,6 +61,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: Attest the release assets
+        id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -70,11 +72,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
         run: |
           # A release made by hand (gh release create) also pushes the tag that runs
           # this workflow: then only replace its assets with the CI build.
+          cp "$BUNDLE" okvault.intoto.jsonl
+          assets=(main.js manifest.json styles.css okvault.intoto.jsonl)
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" main.js manifest.json styles.css --clobber
+            gh release upload "$TAG" "${assets[@]}" --clobber
           else
-            gh release create "$TAG" main.js manifest.json styles.css --verify-tag --generate-notes --title "$TAG"
+            gh release create "$TAG" "${assets[@]}" --verify-tag --generate-notes --title "$TAG"
           fi
