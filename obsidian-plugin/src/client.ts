@@ -357,7 +357,7 @@ export function parseMessages(text: string): RpcMessage[] {
   const t = text.trim();
   if (!t) return [];
   if (t.startsWith("{") || t.startsWith("[")) {
-    const v = JSON.parse(t);
+    const v = JSON.parse(t) as RpcMessage | RpcMessage[];
     return Array.isArray(v) ? v : [v];
   }
   const out: RpcMessage[] = [];
@@ -367,7 +367,7 @@ export function parseMessages(text: string): RpcMessage[] {
       .filter((l) => l.startsWith("data:"))
       .map((l) => l.slice(5).replace(/^ /, ""))
       .join("\n");
-    if (data) out.push(JSON.parse(data));
+    if (data) out.push(JSON.parse(data) as RpcMessage);
   }
   return out;
 }

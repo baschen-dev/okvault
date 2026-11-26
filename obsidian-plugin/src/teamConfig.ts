@@ -3,6 +3,7 @@
 // internal/config/config.go for instant hints; okvault itself (`okvault lint`)
 // is the authority before anything is written. No Obsidian import: tested under Node.
 import { isMap, parseDocument, type YAMLMap } from "yaml";
+import { scalar } from "./text.ts";
 
 export const CONFIG_FILE = ".okvault.yaml";
 
@@ -52,7 +53,7 @@ export function emptyConfig(): TeamConfig {
   };
 }
 
-const str = (v: unknown): string => (v === null || v === undefined ? "" : String(v).trim());
+const str = (v: unknown): string => scalar(v).trim();
 const obj = (v: unknown): Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 const list = (v: unknown): string[] =>

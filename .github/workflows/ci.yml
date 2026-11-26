@@ -46,6 +46,8 @@ jobs:
           cache-dependency-path: obsidian-plugin/package-lock.json
       - run: npm ci
       - run: npm run check
+      - name: Obsidian's lint rules (what the community directory checks)
+        run: npm run lint
       - name: Test against a real okvault serve
         run: npm test
       - run: npm run build

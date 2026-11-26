@@ -3,6 +3,7 @@ import type { Entry, Hit, TicketContext, TicketFilter, TicketList } from "./clie
 import type OkvaultPlugin from "./main";
 import { folderFor, kebab, normalizeKey, notePath, ticketsOf } from "./noteFacts";
 import { Template, createNote, templates } from "./notes";
+import { act } from "./act";
 
 export const TICKET_VIEW = "okvault-ticket";
 
@@ -187,7 +188,7 @@ export class TicketView extends ItemView {
 
   private row(sec: HTMLElement, path: string, title: string, type: string, desc?: string): void {
     const row = sec.createDiv({ cls: "okvault-hit" });
-    row.addEventListener("click", (e) => this.plugin.openNote(path, e.ctrlKey || e.metaKey));
+    row.addEventListener("click", act((e) => this.plugin.openNote(path, e.ctrlKey || e.metaKey)));
     const top = row.createDiv({ cls: "okvault-hit-top" });
     top.createSpan({ cls: "okvault-hit-title", text: title || path });
     if (type) top.createSpan({ cls: "okvault-type", text: type });
@@ -224,11 +225,11 @@ export class TicketView extends ItemView {
     });
     suggest();
     const b = form.createEl("button", { text: "Create note", cls: "mod-cta" });
-    b.addEventListener("click", async () => {
+    b.addEventListener("click", act(async () => {
       const t = templates.find((x) => x.path === sel.value);
       if (t && title.value.trim()) await this.create(t, title.value.trim(), folder.value);
       else new Notice("okvault: give the note a title");
-    });
+    }));
     if (!templates.length) card.createDiv({ cls: "okvault-muted", text: "No templates in _templates/: the note starts from plain frontmatter." });
   }
 
@@ -341,7 +342,7 @@ export class TicketView extends ItemView {
       }
       for (const t of tickets) {
         const row = sec.createDiv({ cls: "okvault-hit" });
-        row.addEventListener("click", () => this.show(t.key));
+        row.addEventListener("click", act(() => this.show(t.key)));
         const top = row.createDiv({ cls: "okvault-hit-top" });
         const name = top.createSpan({ cls: "okvault-hit-title" });
         setIcon(name.createSpan({ cls: "okvault-insp-icon" }), "ticket");
@@ -365,7 +366,7 @@ export class TicketView extends ItemView {
       const r = el.createDiv({ cls: "okvault-section" });
       r.createDiv({ cls: "okvault-section-title", text: "Recent" });
       const chips = r.createDiv({ cls: "okvault-chips" });
-      for (const k of this.recent) chips.createEl("a", { cls: "okvault-chip-link", text: k }).addEventListener("click", () => this.show(k));
+      for (const k of this.recent) chips.createEl("a", { cls: "okvault-chip-link", text: k }).addEventListener("click", act(() => this.show(k)));
     }
     this.renderFilters(el);
     const byKey = new Map<string, { path: string; title: string }[]>();
@@ -388,7 +389,7 @@ export class TicketView extends ItemView {
     for (const k of keys) {
       const notes = byKey.get(k)!;
       const row = sec.createDiv({ cls: "okvault-hit" });
-      row.addEventListener("click", () => this.show(k));
+      row.addEventListener("click", act(() => this.show(k)));
       const top = row.createDiv({ cls: "okvault-hit-top" });
       const name = top.createSpan({ cls: "okvault-hit-title" });
       setIcon(name.createSpan({ cls: "okvault-insp-icon" }), "ticket");

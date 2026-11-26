@@ -4,6 +4,8 @@ import type OkvaultPlugin from "./main";
 import { isConceptPath } from "./bundle";
 import { kebab, shortDate, ticketsOf, trustOf } from "./noteFacts";
 import type { Finding } from "./server";
+import { act } from "./act";
+import { scalar } from "./text";
 
 export const INSPECTOR_VIEW = "okvault-inspector";
 
@@ -131,7 +133,9 @@ export class InspectorView extends ItemView {
     const meta = head.createDiv({ cls: "okvault-insp-meta" });
     meta.createSpan({ cls: "okvault-type", text: (fm.type as string) || "untyped" });
     // <s> strikes a deprecated note's status through by itself.
-    if (fm.status) meta.createEl(fm.status === "deprecated" ? "s" : "span", { cls: `okvault-type okvault-status-chip-${fm.status}`, text: String(fm.status) });
+    // The status is free text: only letters, digits and dashes reach the class name.
+    const status = scalar(fm.status);
+    if (status) meta.createEl(status === "deprecated" ? "s" : "span", { cls: `okvault-type okvault-status-chip-${status.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`, text: status });
     meta.createSpan({ cls: "okvault-path", text: p });
     if (this.offline) el.createDiv({ cls: "okvault-status okvault-status-err", text: `okvault not reachable (${this.offline}); showing what the frontmatter says.` });
 
@@ -167,14 +171,14 @@ export class InspectorView extends ItemView {
     const b = card.createEl("button", { text: this.busy ? "Recording…" : "Mark as checked", cls: t.unverified || t.stale ? "mod-cta" : "" });
     b.disabled = this.busy;
     b.setAttr("title", "okvault verify: records that you read this note and it is correct, and moves its review date ahead");
-    b.addEventListener("click", async () => {
+    b.addEventListener("click", act(async () => {
       this.busy = true;
       this.render();
       await this.plugin.verify(p);
       this.busy = false;
       this.detail = null;
       void this.loadNote();
-    });
+    }));
   }
 
   // ---- owners and tickets ----
@@ -197,7 +201,7 @@ export class InspectorView extends ItemView {
     for (const tk of links) {
       const chip = t.createSpan({ cls: "okvault-chip-link" });
       const a = chip.createEl("a", { text: tk.key, attr: { title: "Open in the ticket workspace" } });
-      a.addEventListener("click", () => this.plugin.openTicket(tk.key));
+      a.addEventListener("click", act(() => this.plugin.openTicket(tk.key)));
       if (tk.url) {
         const ext = chip.createEl("a", { cls: "okvault-ext", href: tk.url, attr: { title: tk.url, "aria-label": "Open in the tracker" } });
         setIcon(ext, "external-link");
@@ -240,14 +244,14 @@ export class InspectorView extends ItemView {
       const types = [...new Set(this.plugin.localNotes().map((n) => n.type).filter(Boolean))].sort();
       const sel = r.createEl("select", { cls: "dropdown" });
       for (const t of types) sel.createEl("option", { text: t, attr: { value: t } });
-      const guess = types.find((t) => t.toLowerCase() === "faq" && /\?\s*$/.test(String(fm.title ?? this.file?.basename))) ?? types[0];
+      const guess = types.find((t) => t.toLowerCase() === "faq" && /\?\s*$/.test(scalar(fm.title) || (this.file?.basename ?? ""))) ?? types[0];
       if (guess) sel.value = guess;
       this.button(r, "Set type", () => this.setFrontmatter("type", sel.value));
     } else if (m.includes("no `description`")) {
       const input = r.createEl("input", { type: "text", attr: { placeholder: "One sentence: what this note answers" } });
       this.button(r, "Set description", () => input.value.trim() && this.setFrontmatter("description", input.value.trim()));
     } else if (m.startsWith("file name")) {
-      const name = kebab(String(fm.title ?? this.file!.basename)) || kebab(this.file!.basename);
+      const name = kebab(scalar(fm.title) || this.file!.basename) || kebab(this.file!.basename);
       this.button(r, `Rename to ${name}.md`, () => this.rename(name));
     } else if (m.startsWith("stale")) {
       r.createDiv({ cls: "okvault-muted", text: "Read it, fix what changed, then Mark as checked above." });
@@ -259,15 +263,15 @@ export class InspectorView extends ItemView {
 
   private button(r: HTMLElement, text: string, fn: () => unknown): void {
     const b = r.createEl("button", { text, cls: "okvault-fix" });
-    b.addEventListener("click", async () => {
+    b.addEventListener("click", act(async () => {
       b.disabled = true;
       await fn();
-    });
+    }));
   }
 
   private async setFrontmatter(key: string, value: string): Promise<void> {
     if (!this.file) return;
-    await this.app.fileManager.processFrontMatter(this.file, (fm) => {
+    await this.app.fileManager.processFrontMatter(this.file, (fm: Record<string, unknown>) => {
       fm[key] = value;
     });
     this.plugin.requestLint();
@@ -295,7 +299,7 @@ export class InspectorView extends ItemView {
       det.createEl("summary", { text: `${label} (${n})` });
       for (const p of paths ?? []) {
         const a = det.createDiv({ cls: "okvault-insp-link" }).createEl("a", { text: p });
-        if (cls !== "is-broken") a.addEventListener("click", (e) => this.plugin.openNote(p, e.ctrlKey || e.metaKey));
+        if (cls !== "is-broken") a.addEventListener("click", act((e) => this.plugin.openNote(p, e.ctrlKey || e.metaKey)));
       }
     };
     list("Linked from", d.backlinks);
@@ -316,7 +320,7 @@ export class InspectorView extends ItemView {
     card.createDiv({ cls: "okvault-hint", text: "Ranked by the same search agents use. Merge near-duplicates rather than keeping two answers." });
     for (const h of this.similar) {
       const row = card.createDiv({ cls: "okvault-hit" });
-      row.addEventListener("click", (e) => this.plugin.openNote(h.path, e.ctrlKey || e.metaKey));
+      row.addEventListener("click", act((e) => this.plugin.openNote(h.path, e.ctrlKey || e.metaKey)));
       const top = row.createDiv({ cls: "okvault-hit-top" });
       top.createSpan({ cls: "okvault-hit-title", text: h.title || h.path });
       top.createSpan({ cls: "okvault-type", text: h.type || "untyped" });

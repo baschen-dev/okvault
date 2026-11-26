@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, SettingPage, type SettingDefinitionItem } from "obsidian";
+import { App, PluginSettingTab, Setting, SettingPage, requireApiVersion, type SettingDefinitionItem } from "obsidian";
 import type OkvaultPlugin from "./main";
 import { TeamSettingsSection } from "./teamSettings";
 import { ConnectionsSection } from "./connectionsSection";
@@ -106,6 +106,7 @@ export class OkvaultSettingTab extends PluginSettingTab {
 
   /** Built on demand: SettingPage only exists from Obsidian 1.13, which is also the only version that asks for it. */
   private teamPage(): SettingPage {
+    if (!requireApiVersion("1.13.0")) throw new Error("okvault: the team settings page needs Obsidian 1.13 or later");
     const team = this.team;
     const connections = this.connections;
     const Page = class extends SettingPage {

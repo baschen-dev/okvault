@@ -63,6 +63,8 @@ jobs:
           fi
       - run: npm ci
       - run: npm run check
+      - name: Obsidian's lint rules (what the community directory checks)
+        run: npm run lint
       - run: npm test
       - run: npm run build
       - name: Attest the release assets

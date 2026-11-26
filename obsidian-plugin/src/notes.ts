@@ -45,7 +45,7 @@ export async function createNote(
   const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
   if (dir && !app.vault.getAbstractFileByPath(dir)) await app.vault.createFolder(dir);
   const file = await app.vault.create(path, text);
-  await app.fileManager.processFrontMatter(file, (fm) => {
+  await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
     if (!fm.title) fm.title = o.title;
     o.edit?.(fm);
   });

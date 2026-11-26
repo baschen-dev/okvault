@@ -15,6 +15,7 @@ import { applyTeamConfig, checkTeamConfig, emptyConfig, readTeamConfig, type Tea
 import { buildBundle, catalog, filterNotes, groupOf, inFolder, labelGeometry, labelRadius, pickLabels, shortTitle } from "../src/bundle.ts";
 import { VaultIgnore, normalizeRoot } from "../src/paths.ts";
 import { DEFAULT_SETTINGS, cleanSetting, rootProblem } from "../src/settingsModel.ts";
+import { scalar } from "../src/text.ts";
 import { readVaultNotes } from "./vault-notes.ts";
 
 const VAULT = join(import.meta.dirname, "..", "..", "vault");
@@ -143,6 +144,8 @@ check("angles in (0, 2π) and distinct", angles.every((a) => a > 0 && a < 2 * Ma
   check("root is normalized", cleanSetting("vaultFolder", "./vault/") === "vault" && cleanSetting("vaultFolder", "/") === "");
   check("root leaving the vault is not stored", cleanSetting("vaultFolder", "../x") === undefined);
   check("unknown keys are not stored", cleanSetting("graphHiddenTypes", ["FAQ"]) === undefined);
+  check("a map typed where text belongs is not stored as [object Object]", cleanSetting("serverUrl", { a: 1 }) === DEFAULT_SETTINGS.serverUrl && cleanSetting("vaultFolder", ["x"]) === "");
+  check("scalars become text, the rest nothing", scalar("a") === "a" && scalar(3) === "3" && scalar(false) === "false" && scalar({ a: 1 }) === "" && scalar(["a"]) === "" && scalar(null) === "");
   const has = (p: string) => p === "vault";
   check("root problems", rootProblem("..", has).includes("inside") && rootProblem("nope", has).includes("No folder nope/") && rootProblem("vault/", has) === "" && rootProblem("", has) === "");
 }

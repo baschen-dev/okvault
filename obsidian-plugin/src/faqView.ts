@@ -1,6 +1,7 @@
 import { ItemView, MarkdownRenderer, WorkspaceLeaf, setIcon } from "obsidian";
 import type { Answer, Hit } from "./client";
 import type OkvaultPlugin from "./main";
+import { act, background } from "./act";
 
 export const FAQ_VIEW = "okvault-faq";
 
@@ -42,19 +43,19 @@ export class FaqView extends ItemView {
     });
     this.input.addEventListener("input", () => this.schedule());
     this.input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") this.run();
+      if (e.key === "Enter") background(this.run());
     });
     this.statusEl = root.createDiv({ cls: "okvault-status" });
     this.resultsEl = root.createDiv({ cls: "okvault-results" });
 
     // Links inside rendered answers open the note they point to.
     this.registerDomEvent(this.resultsEl, "click", (e) => {
-      const a = (e.target as HTMLElement).closest("a.internal-link") as HTMLAnchorElement | null;
+      const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("a.internal-link");
       if (!a) return;
       e.preventDefault();
       const href = a.dataset.href ?? a.getAttribute("href") ?? "";
       const src = a.closest("[data-source]")?.getAttribute("data-source") ?? "";
-      this.app.workspace.openLinkText(href, src, e.ctrlKey || e.metaKey);
+      background(this.app.workspace.openLinkText(href, src, e.ctrlKey || e.metaKey));
     });
 
     await this.run();
@@ -67,7 +68,7 @@ export class FaqView extends ItemView {
   /** Prefill the box (from the command palette or the selection) and ask. */
   setQuery(q: string): void {
     this.input.value = q;
-    this.run();
+    background(this.run());
     this.input.focus();
   }
 
@@ -77,12 +78,12 @@ export class FaqView extends ItemView {
 
   /** Re-run the current query, e.g. after reconnecting. */
   refresh(): void {
-    this.run();
+    background(this.run());
   }
 
   private schedule(): void {
     if (this.timer !== null) window.clearTimeout(this.timer);
-    this.timer = window.setTimeout(() => this.run(), 250);
+    this.timer = window.setTimeout(act(() => this.run()), 250);
   }
 
   private async run(): Promise<void> {
@@ -131,7 +132,7 @@ export class FaqView extends ItemView {
       const icon = head.createSpan({ cls: "okvault-answer-icon" });
       setIcon(icon, "badge-check");
       const q = head.createEl("a", { text: a.matched_question ?? a.path, cls: "okvault-answer-q" });
-      q.addEventListener("click", (e) => this.plugin.openNote(a.path!, e.ctrlKey || e.metaKey));
+      q.addEventListener("click", act((e) => this.plugin.openNote(a.path!, e.ctrlKey || e.metaKey)));
       head.createSpan({ text: `${pct}%`, cls: "okvault-badge", attr: { title: "kb_ask confidence" } });
       const body = card.createDiv({ cls: "okvault-answer-body markdown-rendered" });
       await MarkdownRenderer.render(this.app, a.answer, body, this.plugin.toObsidian(a.path), this);
@@ -156,7 +157,7 @@ export class FaqView extends ItemView {
     sec.createDiv({ cls: "okvault-section-title", text: title });
     for (const h of hits) {
       const row = sec.createDiv({ cls: "okvault-hit" });
-      row.addEventListener("click", (e) => this.plugin.openNote(h.path, e.ctrlKey || e.metaKey));
+      row.addEventListener("click", act((e) => this.plugin.openNote(h.path, e.ctrlKey || e.metaKey)));
       const top = row.createDiv({ cls: "okvault-hit-top" });
       top.createSpan({ text: h.title || h.path, cls: "okvault-hit-title" });
       if (h.type) top.createSpan({ text: h.type, cls: "okvault-type" });
@@ -184,10 +185,10 @@ export class FaqView extends ItemView {
     hits.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
     this.renderHits(el, q ? "FAQ title matches" : "All FAQs", hits.slice(0, 50), false);
     const retry = el.createEl("button", { text: "Reconnect", cls: "okvault-retry" });
-    retry.addEventListener("click", async () => {
+    retry.addEventListener("click", act(async () => {
       await p.connect(true);
-      this.run();
-    });
+      await this.run();
+    }));
   }
 
   private setStatus(text: string, kind: "ok" | "warn" | "err"): void {

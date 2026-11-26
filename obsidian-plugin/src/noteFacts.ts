@@ -148,7 +148,7 @@ export function relativeLink(from: string, to: string): string {
   let i = 0;
   while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
   const up = a.length - i;
-  const rel = [...Array(up).fill(".."), ...b.slice(i)].join("/");
+  const rel = [...Array<string>(up).fill(".."), ...b.slice(i)].join("/");
   return up ? rel : `./${rel}`;
 }
 

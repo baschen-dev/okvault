@@ -3,6 +3,8 @@ import type { Gap, GapsResult } from "./client";
 import type OkvaultPlugin from "./main";
 import { folderFor, mergeAliases, notePath, relativeLink } from "./noteFacts";
 import { createNote, templateFor } from "./notes";
+import { act } from "./act";
+import { scalar } from "./text";
 
 export const GAPS_VIEW = "okvault-gaps";
 
@@ -80,7 +82,7 @@ export class GapsView extends ItemView {
     });
     const btn = head.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Refresh" } });
     setIcon(btn, "refresh-cw");
-    btn.addEventListener("click", () => this.reload());
+    btn.addEventListener("click", act(() => this.reload()));
     el.createDiv({
       cls: "okvault-hint",
       text: "Questions agents asked that no FAQ answers confidently, most asked first. Recorded on this machine only; your own searches in the FAQ panel are not counted.",
@@ -144,26 +146,26 @@ export class GapsView extends ItemView {
       const ans = actions.createEl("button", { text: "Answer this", cls: "mod-cta" });
       ans.disabled = busy;
       ans.setAttr("title", "Create an FAQ for this question (a draft until you write the answer), with the other phrasings as aliases");
-      ans.addEventListener("click", () => this.run(g.id, () => this.answer(g)));
+      ans.addEventListener("click", act(() => this.run(g.id, () => this.answer(g))));
     }
     if (near && (nearIsDraft || near.confidence >= NEAR_MISS)) {
       const al = actions.createEl("button", { text: nearIsDraft ? "Add phrasings to the draft" : "Add as aliases" });
       al.disabled = busy;
-      al.addEventListener("click", () => this.run(g.id, () => this.addAliases(near.path, g.phrasings)));
+      al.addEventListener("click", act(() => this.run(g.id, () => this.addAliases(near.path, g.phrasings))));
     }
     const dis = actions.createEl("button", { text: "Dismiss" });
     dis.disabled = busy;
     dis.setAttr("title", "Not a question the vault should answer; hide it on this machine");
-    dis.addEventListener("click", () =>
+    dis.addEventListener("click", act(() =>
       this.run(g.id, async () => {
         this.result = await this.plugin.client.gaps({ dismiss: g.id, limit: 50 });
-      }),
+      })),
     );
   }
 
   private link(el: HTMLElement, text: string, okPath: string): void {
     const a = el.createEl("a", { text, attr: { title: okPath } });
-    a.addEventListener("click", (e) => this.plugin.openNote(okPath, e.ctrlKey || e.metaKey));
+    a.addEventListener("click", act((e) => this.plugin.openNote(okPath, e.ctrlKey || e.metaKey)));
   }
 
   private async run(id: string, fn: () => Promise<unknown>): Promise<void> {
@@ -202,8 +204,8 @@ export class GapsView extends ItemView {
   private async addAliases(okPath: string, phrasings: string[]): Promise<void> {
     const f = this.app.vault.getAbstractFileByPath(this.plugin.toObsidian(okPath));
     if (!(f instanceof TFile)) throw new Error(`${okPath} is not in this vault`);
-    await this.app.fileManager.processFrontMatter(f, (fm) => {
-      fm.aliases = mergeAliases(fm.aliases, phrasings, String(fm.title ?? ""));
+    await this.app.fileManager.processFrontMatter(f, (fm: Record<string, unknown>) => {
+      fm.aliases = mergeAliases(fm.aliases, phrasings, scalar(fm.title));
     });
     new Notice(`okvault: added ${phrasings.length === 1 ? "the phrasing" : "the phrasings"} to ${okPath}`);
     this.reloadSoon();
