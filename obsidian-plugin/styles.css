@@ -129,6 +129,14 @@
 .okvault-ring-swatch.okvault-r-warning { border-color: var(--okv-warning); }
 .okvault-ring-swatch.okvault-r-muted { border-color: var(--okv-muted); border-style: dashed; }
 
+.okvault-bundle:focus { outline: none; }
+.okvault-crumbs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--font-ui-smaller); min-height: 24px; }
+.okvault-crumb { cursor: pointer; }
+.okvault-crumb.is-here { font-weight: var(--font-semibold); color: var(--text-normal); }
+.okvault-open-btn { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-ui-smaller); padding: 2px 8px; height: auto; }
+.okvault-open-icon, .okvault-open-folder { display: inline-flex; }
+.okvault-open-icon svg, .okvault-open-folder svg { width: 14px; height: 14px; }
+.okvault-open-folder { padding: 0 2px; margin-left: 4px; height: auto; vertical-align: middle; }
 .okvault-chart { position: relative; max-width: 980px; max-height: 75vh; margin: 0 auto; }
 .okvault-chart svg { max-height: 75vh; }
 .okvault-chart svg { width: 100%; height: auto; display: block; overflow: visible; }

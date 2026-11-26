@@ -71,6 +71,16 @@ export function sectionOf(p: string): string {
   return i < 0 ? ROOT : p.slice(0, i);
 }
 
+/** Whether a note lies in a folder ("" = the whole vault). */
+export function inFolder(p: string, folder: string): boolean {
+  return !folder || p.startsWith(folder + "/");
+}
+
+/** The group a note is drawn in when the map shows a folder: its subfolder, or ROOT for the folder's own notes. */
+export function groupOf(p: string, folder: string): string {
+  return sectionOf(folder ? p.slice(folder.length + 1) : p);
+}
+
 /**
  * Why a note needs review: okvault's kb_review reasons for it (stale, unverified,
  * no-owner, ...) plus what is known locally (broken links, draft status).
@@ -137,15 +147,20 @@ export function catalog(notes: NoteInput[], reasons: Map<string, string[]> = new
   return { types, typeCount, sections, reasonCount, total };
 }
 
+/**
+ * Lays out the concepts of a folder ("" = the whole vault): its subfolders are the
+ * sections around the circle, and links leaving the folder are left out.
+ */
 export function buildBundle(
   notes: NoteInput[],
   reasons: Map<string, string[]>,
   radius = 300,
+  folder = "",
 ): Bundle {
-  const concepts = notes.filter((n) => isConceptPath(n.path));
+  const concepts = notes.filter((n) => isConceptPath(n.path) && inFolder(n.path, folder));
   const bySection = new Map<string, NoteInput[]>();
   for (const n of concepts) {
-    const s = sectionOf(n.path);
+    const s = groupOf(n.path, folder);
     if (!bySection.has(s)) bySection.set(s, []);
     bySection.get(s)!.push(n);
   }

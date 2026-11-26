@@ -12,7 +12,7 @@ import { OkvaultClient, parseMessages, type Post } from "../src/client.ts";
 import { OkvaultProcess, checkConfig, checkConnections, lintVault, syncNow, verifyNote } from "../src/server.ts";
 import { fillTemplate, folderFor, kebab, mergeAliases, normalizeKey, notePath, relativeLink, ticketKeyAt, ticketsOf, trustOf } from "../src/noteFacts.ts";
 import { applyTeamConfig, checkTeamConfig, emptyConfig, readTeamConfig, type TeamConfig } from "../src/teamConfig.ts";
-import { buildBundle, catalog, filterNotes, labelGeometry, labelRadius, pickLabels, shortTitle } from "../src/bundle.ts";
+import { buildBundle, catalog, filterNotes, groupOf, inFolder, labelGeometry, labelRadius, pickLabels, shortTitle } from "../src/bundle.ts";
 import { VaultIgnore, normalizeRoot } from "../src/paths.ts";
 import { DEFAULT_SETTINGS, cleanSetting, rootProblem } from "../src/settingsModel.ts";
 import { readVaultNotes } from "./vault-notes.ts";
@@ -78,6 +78,31 @@ check("angles in (0, 2π) and distinct", angles.every((a) => a > 0 && a < 2 * Ma
   check("review filter combines with hidden sections", filterNotes(fake, { hiddenTypes: new Set(), hiddenSections: new Set(["conventions"]), onlyReasons: new Set(["stale"]) }, rev).length === 0);
   const rc = catalog(fake, rev).reasonCount;
   check("catalog counts review reasons", rc.get("stale") === 1 && rc.get("unverified") === 1 && (rc.get("draft") ?? 0) >= 1 && (rc.get("broken-links") ?? 0) >= 1, JSON.stringify([...rc]));
+}
+
+// ---- bundle map drill-down: a folder's subfolders become the sections ----
+{
+  const n = (path: string, links: string[] = []) => ({ path, title: path, type: "Reference", links, broken: 0 });
+  const tree = [
+    n("ref/kubectl/a.md", ["ref/kubectl/b.md", "ref/api/c.md", "guide/e.md"]),
+    n("ref/kubectl/b.md"),
+    n("ref/api/c.md", ["ref/d.md"]),
+    n("ref/d.md"),
+    n("refs/x.md"),
+    n("guide/e.md", ["ref/d.md"]),
+  ];
+  check("inFolder matches whole folder names", inFolder("ref/d.md", "ref") && !inFolder("refs/x.md", "ref") && inFolder("refs/x.md", ""));
+  check("groupOf is the next folder down", groupOf("ref/kubectl/a.md", "ref") === "kubectl" && groupOf("ref/d.md", "ref") === "(root)" && groupOf("ref/kubectl/a.md", "") === "ref");
+  const top = buildBundle(tree, new Map(), 260);
+  check("whole vault: top-level sections", top.sections.map((x) => x.name).join(",") === "guide,ref,refs");
+  const ref = buildBundle(tree, new Map(), 260, "ref");
+  check("in ref/: only its notes", ref.nodes.size === 4 && !ref.nodes.has("guide/e.md") && !ref.nodes.has("refs/x.md"));
+  check("in ref/: subfolders are the sections, its own notes first", ref.sections.map((x) => x.name).join(",") === "(root),api,kubectl", ref.sections.map((x) => x.name).join(","));
+  check("in ref/: links leaving it are left out", ref.edges.length === 3 && ref.edges.every((e) => ref.nodes.has(e.from) && ref.nodes.has(e.to)), String(ref.edges.length));
+  const kubectl = ref.sections.find((x) => x.name === "kubectl")!;
+  check("in ref/: links between subfolders count as leaving a section", kubectl.internal === 1 && kubectl.external === 1);
+  const deep = buildBundle(tree, new Map(), 260, "ref/kubectl");
+  check("two levels down", deep.nodes.size === 2 && deep.sections.length === 1 && deep.edges.length === 1);
 }
 
 // ---- bundle map labels: sized for the pane, cut at words, never closer than a line ----
