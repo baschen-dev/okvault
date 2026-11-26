@@ -20,6 +20,11 @@ knowledge lives here. okvault connects the two in both directions.
 - `kb_ticket PROJ-123` (CLI: `okvault ticket PROJ-123`) returns the ticket
   from Jira, the linked and mentioning notes, and notes that match the
   ticket's summary. An agent calls it when it starts work on a ticket.
+- `kb_tickets` (CLI: `okvault tickets --filter NAME`) runs the team's ticket
+  filters from `.okvault.yaml` (`tracker.filters`, JQL). Without any, it
+  offers *My tickets* (open tickets assigned to you) and, when
+  `tracker.doc_label` is set, *Missing docs* (finished tickets without that
+  label). Each ticket shows how many notes list it.
 - When the work is done, the agent records what the team should remember
   (decision, gotcha, how-to, new FAQ answer) with `kb_write` and `tickets`.
   Jira stays read-only for okvault: it never comments or changes status.

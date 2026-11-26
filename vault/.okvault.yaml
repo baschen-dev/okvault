@@ -8,6 +8,12 @@
 #   projects: [PROJ, OPS]           # ticket keys to recognise in notes
 #   # api: "3"                      # default 3 on *.atlassian.net, else 2 (Data Center)
 #   # browse: https://jira.example.com/browse/{key}
+#   doc_label: documented           # label on tickets whose knowledge is in the vault
+#   # filters:                      # ticket lists (JQL); unset: My tickets, + Missing docs with doc_label
+#   #   - name: My tickets
+#   #     jql: assignee = currentUser() AND statusCategory != Done
+#   #   - name: Team board
+#   #     jql: filter = 12345       # a Jira saved filter
 #
 # owners:                           # folder defaults; a note's own `owners` wins
 #   ops: [team-ops]

@@ -69,7 +69,7 @@ func TestToolsEndToEnd(t *testing.T) {
 	for _, tl := range tools.Tools {
 		names = append(names, tl.Name)
 	}
-	if got := strings.Join(names, ","); got != "kb_ask,kb_get,kb_list,kb_review,kb_search,kb_ticket,kb_write" {
+	if got := strings.Join(names, ","); got != "kb_ask,kb_get,kb_list,kb_review,kb_search,kb_ticket,kb_tickets,kb_write" {
 		t.Fatalf("tools = %s", got)
 	}
 

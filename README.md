@@ -59,6 +59,7 @@ An existing Obsidian vault works too: notes without frontmatter are loaded as un
 | `kb_get` | Reads one note: frontmatter, body, links, backlinks, broken links, tickets, owners and its `revision`. Accepts a path or a title. |
 | `kb_list` | Counts notes per type, tag and folder, and lists the notes that match the filters. |
 | `kb_ticket` | Context for a ticket key: the ticket from Jira (when configured), notes linked to it or mentioning it, and notes matching its summary. Works without Jira credentials, from the vault alone. |
+| `kb_tickets` | The team's ticket filters (`tracker.filters`, by default *My tickets* and *Missing docs*) and, with `filter`, that filter's tickets from Jira, each with how many notes document it. |
 | `kb_review` | Notes that need a person: stale, unverified agent edits, drafts, broken links, no owner. Filter by owner or reason. `rescan: true` re-reads the vault from disk first, for changes the file watcher missed. |
 | `kb_gaps` | Knowledge gaps: questions `kb_ask` could not answer confidently, grouped with their other phrasings, most asked first, with the nearest FAQ and the notes agents read instead. Groups an FAQ answers now drop out; `dismiss` hides one. |
 | `kb_write` | Creates or updates a note. It requires `type`, keeps unknown keys, stamps `generated`, refreshes `index.md` and appends to `log.md`. `base_revision` (from `kb_get`) makes it fail instead of overwriting a teammate's change. Disabled with `--read-only`. |
@@ -81,12 +82,25 @@ tracker:
   kind: jira
   url: https://acme.atlassian.net
   projects: [PROJ, OPS]      # keys okvault recognises in notes
+  doc_label: documented      # label on tickets whose knowledge is in the vault
+  # filters:                 # ticket lists; unset: My tickets (+ Missing docs with doc_label)
+  #   - name: My tickets
+  #     jql: assignee = currentUser() AND statusCategory != Done
+  #   - name: Team board
+  #     jql: filter = 12345    # a Jira saved filter
 owners:
   ops: [team-ops]            # folder defaults; a note's own `owners` wins
 review_interval: 180d
 ```
 
 Each person who wants ticket details sets `JIRA_API_TOKEN`, plus `JIRA_EMAIL` on Jira Cloud. Without them the token is sent as a Data Center personal access token, and with no token at all `kb_ticket` still returns the vault's notes. okvault only reads from Jira.
+
+Ticket filters are JQL lists of tickets, shown in the Obsidian ticket workspace, by `kb_tickets` and by `okvault tickets --filter "My tickets"`. Without `filters`, okvault offers two, limited to `projects`:
+
+- **My tickets**: `assignee = currentUser() AND statusCategory != Done`. `currentUser()` is whoever owns the `JIRA_API_TOKEN`, so each person sees their own.
+- **Missing docs** (when `doc_label` is set): finished tickets without that label, `statusCategory = Done AND (labels is EMPTY OR labels not in ("documented"))`.
+
+Each ticket in a result says how many notes list it in `tickets`, so a ticket nobody wrote up stands out even before anyone labels it. Setting `filters` replaces both defaults; each filter also links to Jira's issue search.
 
 `okvault connections` checks what this machine's credentials reach. For Jira, it shows the site, where the credentials came from, who you are signed in as, and the projects you can see; `--jira-url` tries a site before it is in `.okvault.yaml`. For GitHub and git, it shows the repository, the API token source (`GH_TOKEN`, `GITHUB_TOKEN` or the GitHub CLI), whether you can push, and a `git push --dry-run` that tests git's own credentials without sending anything. It names credential sources, never their values. The Obsidian plugin runs the same check from its settings, and offers the Jira projects as a checklist.
 

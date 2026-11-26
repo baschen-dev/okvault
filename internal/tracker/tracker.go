@@ -60,7 +60,15 @@ type Comment struct {
 // Tracker fetches tickets.
 type Tracker interface {
 	Issue(ctx context.Context, key string) (*Issue, error)
+	// Search lists the tickets a JQL query matches, compact (no description
+	// or comments), at most limit (capped at MaxSearch).
+	Search(ctx context.Context, jql string, limit int) ([]Issue, error)
 }
+
+// MaxSearch caps the tickets one search returns.
+const MaxSearch = 50
+
+const searchFields = "summary,status,issuetype,priority,assignee,labels,updated"
 
 // Limits on what is returned to an agent, to keep its context small.
 const (
@@ -125,28 +133,15 @@ func (j *Jira) Issue(ctx context.Context, key string) (*Issue, error) {
 	j.mu.Unlock()
 
 	u := fmt.Sprintf("%s/rest/api/%s/issue/%s?fields=%s", j.base, j.api, url.PathEscape(k), fields)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	body, status, err := j.get(ctx, u)
 	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", j.auth)
-	req.Header.Set("Accept", "application/json")
-	res, err := j.hc.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("tracker: %s: %w", k, redact(err, j.auth))
-	}
-	defer res.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tracker: %s: %w", k, err)
 	}
 	switch {
-	case res.StatusCode == http.StatusNotFound:
+	case status == http.StatusNotFound:
 		return nil, fmt.Errorf("%w: %s (or no permission to see it)", ErrNotFound, k)
-	case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
-		return nil, fmt.Errorf("tracker: %s: access denied (%d); check %s/%s", k, res.StatusCode, EnvEmail, EnvToken)
-	case res.StatusCode != http.StatusOK:
-		return nil, fmt.Errorf("tracker: %s: HTTP %d%s", k, res.StatusCode, jiraErrors(body))
+	case status != http.StatusOK:
+		return nil, j.statusErr(k, status, body)
 	}
 	is, err := decode(body)
 	if err != nil {
@@ -157,6 +152,68 @@ func (j *Jira) Issue(ctx context.Context, key string) (*Issue, error) {
 	j.cache[k] = cached{time.Now(), is}
 	j.mu.Unlock()
 	return is, nil
+}
+
+// Search runs a JQL query: /rest/api/3/search/jql on Jira Cloud, /rest/api/2/search on Data Center.
+func (j *Jira) Search(ctx context.Context, jql string, limit int) ([]Issue, error) {
+	if limit <= 0 || limit > MaxSearch {
+		limit = MaxSearch
+	}
+	q := url.Values{"jql": {jql}, "fields": {searchFields}, "maxResults": {fmt.Sprint(limit)}}
+	path := "search"
+	if j.api == "3" {
+		path = "search/jql" // the v3 /search endpoint is retired on Jira Cloud
+	}
+	body, status, err := j.get(ctx, fmt.Sprintf("%s/rest/api/%s/%s?%s", j.base, j.api, path, q.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("tracker: search: %w", err)
+	}
+	if status != http.StatusOK {
+		return nil, j.statusErr("search", status, body)
+	}
+	var r struct {
+		Issues []json.RawMessage `json:"issues"`
+	}
+	if err := json.Unmarshal(body, &r); err != nil {
+		return nil, fmt.Errorf("tracker: search: %w", err)
+	}
+	out := make([]Issue, 0, len(r.Issues))
+	for _, raw := range r.Issues {
+		is, err := decode(raw)
+		if err != nil {
+			return nil, fmt.Errorf("tracker: search: %w", err)
+		}
+		is.URL = j.cfg.BrowseURL(is.Key)
+		out = append(out, *is)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// get sends an authenticated GET and returns the body (up to 8 MiB) and status.
+func (j *Jira) get(ctx context.Context, u string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", j.auth)
+	req.Header.Set("Accept", "application/json")
+	res, err := j.hc.Do(req)
+	if err != nil {
+		return nil, 0, redact(err, j.auth)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+	return body, res.StatusCode, err
+}
+
+func (j *Jira) statusErr(what string, status int, body []byte) error {
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return fmt.Errorf("tracker: %s: access denied (%d); check %s/%s", what, status, EnvEmail, EnvToken)
+	}
+	return fmt.Errorf("tracker: %s: HTTP %d%s", what, status, jiraErrors(body))
 }
 
 type named struct {

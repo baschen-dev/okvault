@@ -113,6 +113,22 @@ export interface TicketContext {
   hint: string;
 }
 
+/** A ticket filter (tracker.filters, or the defaults). */
+export interface TicketFilter {
+  name: string;
+  jql: string;
+  /** The filter in Jira's issue search. */
+  url?: string;
+}
+
+/** kb_tickets */
+export interface TicketList {
+  filters: TicketFilter[];
+  filter?: TicketFilter;
+  tickets?: (Issue & { linked_notes: number; mentioned_in?: number })[];
+  tracker_note?: string;
+}
+
 /** kb_gaps */
 export interface Gap {
   id: string;
@@ -200,6 +216,11 @@ export class OkvaultClient {
   /** kb_ticket: the ticket from the tracker (when configured) and the notes about it. */
   async ticket(key: string): Promise<TicketContext> {
     return this.call<TicketContext>("kb_ticket", { key });
+  }
+
+  /** kb_tickets: the team's ticket filters, and with a name that filter's tickets. */
+  async tickets(filter?: string): Promise<TicketList> {
+    return this.call<TicketList>("kb_tickets", filter ? { filter } : {});
   }
 
   /** kb_gaps: questions agents asked that no FAQ answers confidently. dismiss hides a group. */

@@ -244,6 +244,7 @@
 .okvault-owner-row .setting-item-control { flex-wrap: nowrap; }
 .okvault-owner-row .setting-item-control input[type="text"] { min-width: 0; flex: 1; }
 .okvault-owner-row .setting-item-info { display: none; }
+.okvault-owner-row .setting-item-control input.okvault-jql { flex: 3; }
 .okvault-owner-row.okvault-has-error .setting-item-info { display: block; }
 .okvault-team-foot {
   position: sticky;
@@ -370,3 +371,10 @@
 .okvault-project-key { font-family: var(--font-monospace); min-width: 70px; }
 .okvault-project.is-missing .okvault-project-key { font-style: italic; }
 .okvault-projects-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+
+/* ticket filters in the ticket workspace */
+.okvault-filter-head { display: flex; align-items: center; gap: 8px; }
+.okvault-filter-head > span:first-child { flex: 1; }
+.okvault-filter-link { font-size: var(--font-ui-smaller); color: var(--text-muted); cursor: pointer; display: inline-flex; }
+.okvault-filter-link svg { width: 14px; height: 14px; }
+.okvault-type.okvault-undocumented { color: var(--text-warning); border-color: var(--text-warning); }

@@ -37,6 +37,7 @@ To change an existing note, pass the revision from kb_get as base_revision so a 
 
 Team work and tickets:
 - Starting work on a ticket (e.g. PROJ-123): call kb_ticket first. It returns the ticket from the tracker (when configured) and the notes linked to it, mentioning it, or likely relevant.
+- kb_tickets lists the team's ticket filters (e.g. "My tickets", "Missing docs") and runs one: its tickets, each with how many notes document it.
 - Finishing work on a ticket: record what the team should remember (decisions, gotchas, how-tos, new FAQ answers) with kb_write and tickets: ["PROJ-123"]. Update existing notes rather than adding near-duplicates.
 - kb_review lists notes that need a person: stale, unverified agent edits, drafts, broken links. Never set the verified key yourself; people do that with okvault verify.
 - The tracker is read-only here: never claim to have updated a ticket.
@@ -161,6 +162,34 @@ type GetOut struct {
 type TicketLink struct {
 	Key string `json:"key"`
 	URL string `json:"url,omitempty"`
+}
+
+// ---- kb_tickets ----
+
+type TicketsIn struct {
+	Filter string `json:"filter,omitempty" jsonschema:"name of the filter to run, from tracker.filters (e.g. My tickets); empty lists the filters"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"most tickets to return (default and max 50)"`
+}
+
+type TicketsOut struct {
+	Filters     []FilterInfo `json:"filters"`
+	Filter      *FilterInfo  `json:"filter,omitempty" jsonschema:"the filter that ran"`
+	Tickets     []TicketRow  `json:"tickets,omitempty"`
+	TrackerNote string       `json:"tracker_note,omitempty" jsonschema:"why the filter could not run"`
+}
+
+// FilterInfo is a ticket filter with its Jira search page.
+type FilterInfo struct {
+	Name string `json:"name"`
+	JQL  string `json:"jql"`
+	URL  string `json:"url,omitempty" jsonschema:"the filter in Jira's issue search"`
+}
+
+// TicketRow is a ticket in a filter's result, with the notes documenting it.
+type TicketRow struct {
+	tracker.Issue
+	Linked    int `json:"linked_notes" jsonschema:"notes listing this ticket in their tickets frontmatter"`
+	Mentioned int `json:"mentioned_in,omitempty" jsonschema:"notes mentioning the key in their text"`
 }
 
 // ---- kb_ticket ----
@@ -325,6 +354,16 @@ func (s *Server) register() {
 	})
 
 	mcp.AddTool(s.MCP, &mcp.Tool{
+		Name:        "kb_tickets",
+		Title:       "Ticket filters",
+		Description: "The team's ticket filters from .okvault.yaml (by default \"My tickets\": open tickets assigned to the token owner, and \"Missing docs\": finished tickets without the doc label) and, with filter, that filter's tickets from Jira, each with the number of notes that document it.",
+		Annotations: roOpen,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in TicketsIn) (*mcp.CallToolResult, *TicketsOut, error) {
+		out, err := s.Tickets(ctx, in.Filter, in.Limit)
+		return nil, out, err
+	})
+
+	mcp.AddTool(s.MCP, &mcp.Tool{
 		Name:        "kb_review",
 		Title:       "Notes needing review",
 		Description: "The team's maintenance queue: notes that are stale (stale_after passed), written by an agent and not verified by a person since, drafts, with broken links, or without an owner. Filter by owner or reason. rescan re-reads the vault from disk first.",
@@ -435,6 +474,55 @@ func (s *Server) tracker(cfg *config.Config) (tracker.Tracker, string) {
 		}
 	}
 	return s.tr, s.trReason
+}
+
+// Tickets lists the configured ticket filters and, with a name, runs that one.
+func (s *Server) Tickets(ctx context.Context, name string, limit int) (*TicketsOut, error) {
+	snap := s.v.Snapshot()
+	out := &TicketsOut{Filters: []FilterInfo{}}
+	for _, f := range snap.Config.TicketFilters() {
+		fi := FilterInfo{Name: f.Name, JQL: f.JQL, URL: snap.Config.FilterURL(f.JQL)}
+		out.Filters = append(out.Filters, fi)
+		if name != "" && strings.EqualFold(strings.TrimSpace(name), f.Name) {
+			out.Filter = &fi
+		}
+	}
+	if name == "" {
+		if len(out.Filters) == 0 {
+			out.TrackerNote = "no ticket filters: set tracker.kind: jira (or tracker.filters) in " + config.File
+		}
+		return out, nil
+	}
+	if out.Filter == nil {
+		names := make([]string, len(out.Filters))
+		for i, f := range out.Filters {
+			names[i] = f.Name
+		}
+		return nil, fmt.Errorf("no ticket filter %q (have: %s)", name, strings.Join(names, ", "))
+	}
+	tr, reason := s.tracker(snap.Config)
+	if tr == nil {
+		out.TrackerNote = reason
+		return out, nil
+	}
+	issues, err := tr.Search(ctx, out.Filter.JQL, limit)
+	if err != nil {
+		out.TrackerNote = err.Error()
+		return out, nil
+	}
+	out.Tickets = make([]TicketRow, 0, len(issues))
+	for _, is := range issues {
+		row := TicketRow{Issue: is}
+		for _, r := range snap.Tickets[is.Key] {
+			if r.Linked {
+				row.Linked++
+			} else {
+				row.Mentioned++
+			}
+		}
+		out.Tickets = append(out.Tickets, row)
+	}
+	return out, nil
 }
 
 // TicketContext gathers what the vault and the tracker know about a ticket.

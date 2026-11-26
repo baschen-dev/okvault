@@ -45,6 +45,7 @@ Usage:
   okvault lint   [--vault DIR] [--strict] [--config FILE|-]                 OKF conformance check
   okvault index  [--vault DIR]                                              regenerate index.md files, repair log.md
   okvault ticket [--vault DIR] KEY                                          ticket + related notes
+  okvault tickets [--vault DIR] [--filter NAME] [--limit N] [--json]        ticket filters (My tickets, Missing docs)
   okvault review [--vault DIR] [--owner O] [--reason R]                     notes needing a person
   okvault gaps   [--vault DIR] [--limit N] [--json] [--gaps FILE]           questions agents asked that no FAQ answers
   okvault verify [--vault DIR] [--by NAME] PATH...                          mark notes checked by a person
@@ -53,7 +54,7 @@ Usage:
                                                 what this machine's Jira and GitHub credentials reach
   okvault version
 
-Jira credentials (for ticket / kb_ticket): JIRA_API_TOKEN, plus JIRA_EMAIL on Jira Cloud.
+Jira credentials (for ticket, tickets, kb_ticket, kb_tickets): JIRA_API_TOKEN, plus JIRA_EMAIL on Jira Cloud.
 Git: set git.mode in .okvault.yaml (off, commit, push, pr); --git overrides it on this machine.
 GitHub pull requests (pr mode): GH_TOKEN or GITHUB_TOKEN, else the GitHub CLI's login.
 
@@ -85,6 +86,8 @@ func main() {
 		err = index(args, os.Stdout)
 	case "ticket":
 		err = ticketCmd(args, os.Stdout)
+	case "tickets":
+		err = ticketsCmd(args, os.Stdout)
 	case "review":
 		err = review(args, os.Stdout)
 	case "gaps":
@@ -494,6 +497,58 @@ func ticketCmd(args []string, w io.Writer) error {
 		printHits(w, out.Suggested)
 	}
 	fmt.Fprintf(w, "\n%s\n", out.Hint)
+	return nil
+}
+
+// ticketsCmd lists the vault's ticket filters, or runs one (--filter NAME).
+func ticketsCmd(args []string, w io.Writer) error {
+	fs := flag.NewFlagSet("tickets", flag.ExitOnError)
+	dir := fs.String("vault", defaultVault(), "vault directory")
+	filter := fs.String("filter", "", "filter to run, e.g. \"My tickets\"; empty lists the filters")
+	limit := fs.Int("limit", 0, "most tickets to show (max 50)")
+	asJSON := fs.Bool("json", false, "print JSON")
+	_ = fs.Parse(args)
+	if *filter == "" && fs.NArg() > 0 {
+		*filter = strings.Join(fs.Args(), " ")
+	}
+	v, ix, err := open(fs, *dir)
+	if err != nil {
+		return err
+	}
+	srv := server.New(v, ix, server.Options{ReadOnly: true, Version: version, Env: os.Getenv})
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := srv.Tickets(ctx, *filter, *limit)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return printJSON(w, out)
+	}
+	if out.Filter == nil {
+		for _, f := range out.Filters {
+			fmt.Fprintf(w, "%-20s %s\n", f.Name, f.JQL)
+		}
+		if out.TrackerNote != "" {
+			fmt.Fprintln(w, out.TrackerNote)
+		}
+		return nil
+	}
+	fmt.Fprintf(w, "%s  %s\n", out.Filter.Name, out.Filter.URL)
+	if out.TrackerNote != "" {
+		fmt.Fprintf(w, "(tickets not fetched: %s)\n", out.TrackerNote)
+		return nil
+	}
+	if len(out.Tickets) == 0 {
+		fmt.Fprintln(w, "No tickets.")
+	}
+	for _, t := range out.Tickets {
+		docs := "no notes"
+		if t.Linked > 0 {
+			docs = fmt.Sprintf("%d note(s)", t.Linked)
+		}
+		fmt.Fprintf(w, "  %-10s %-14s %-10s %s\n", t.Key, t.Status, docs, t.Summary)
+	}
 	return nil
 }
 
