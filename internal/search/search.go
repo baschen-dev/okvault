@@ -4,6 +4,7 @@ package search
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -22,6 +23,15 @@ import (
 
 // Field boosts: metadata matches matter more than body matches.
 var boosts = map[string]float64{"title": 4, "aliases": 3, "description": 2, "tags": 2, "body": 1}
+
+// Link-graph priors (see vault/reference/search-ranking.md). They multiply the
+// BM25 score, so they reorder notes of similar relevance without letting a
+// well-linked note overtake a clearly better match.
+const (
+	linkWeight = 0.1  // per log(1+backlinks)
+	linkCap    = 0.3  // backlinks add at most 30%
+	nearTicket = 0.25 // a note about a ticket in the query, or one link from one
+)
 
 type doc struct {
 	Path        string   `json:"path"`
@@ -44,6 +54,7 @@ type Index struct {
 	idx  bleve.Index
 	snap *vault.Snapshot
 	faq  []faqEntry
+	link map[string]float64 // note path -> backlink prior (1 when it has none)
 }
 
 type faqEntry struct {
@@ -120,14 +131,51 @@ func (ix *Index) Rebuild(s *vault.Snapshot) error {
 	if err := idx.Batch(b); err != nil {
 		return err
 	}
+	link := linkPriors(s)
 	ix.mu.Lock()
 	old := ix.idx
-	ix.idx, ix.snap, ix.faq = idx, s, faq
+	ix.idx, ix.snap, ix.faq, ix.link = idx, s, faq, link
 	ix.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
 	}
 	return nil
+}
+
+// linkPriors weighs each note by how many other live notes link to it.
+// Deprecated notes and self-links do not count.
+func linkPriors(s *vault.Snapshot) map[string]float64 {
+	out := map[string]float64{}
+	for p, srcs := range s.Backlinks {
+		n := 0
+		for _, src := range srcs {
+			if c, ok := s.Concepts[src]; ok && src != p && strings.ToLower(c.Status) != "deprecated" {
+				n++
+			}
+		}
+		if n > 0 {
+			out[p] = 1 + math.Min(linkWeight*math.Log1p(float64(n)), linkCap)
+		}
+	}
+	return out
+}
+
+// ticketNeighbours returns the notes about the given tickets (linked or
+// mentioning them) and the notes one link away from those, either direction.
+func ticketNeighbours(s *vault.Snapshot, keys []string) map[string]bool {
+	out := map[string]bool{}
+	for _, k := range keys {
+		for _, r := range s.Tickets[k] {
+			out[r.Path] = true
+			for _, n := range s.Links[r.Path] {
+				out[n] = true
+			}
+			for _, n := range s.Backlinks[r.Path] {
+				out[n] = true
+			}
+		}
+	}
+	return out
 }
 
 // IsFAQ reports whether a concept is a question/answer entry.
@@ -158,6 +206,9 @@ type Query struct {
 	Owner          string // only notes owned by this person or group
 	Limit          int
 	WithDeprecated bool
+	// NearTickets ranks notes about these ticket keys, and notes one link
+	// from them, a little higher. Ticket keys in Text count too.
+	NearTickets []string
 }
 
 // Search runs a BM25 query with optional type/tag/dir filters.
@@ -169,6 +220,7 @@ func (ix *Index) Search(q Query) ([]Hit, error) {
 	}
 	var must []query.Query
 	text := strings.TrimSpace(q.Text)
+	near := append([]string(nil), q.NearTickets...)
 	if text == "" {
 		must = append(must, bleve.NewMatchAllQuery())
 	} else {
@@ -197,6 +249,7 @@ func (ix *Index) Search(q Query) ([]Hit, error) {
 		// the English analyzer splits PROJ-123 into "proj" and "123": match keys exactly
 		for _, w := range strings.Fields(text) {
 			if k, ok := config.NormalizeKey(strings.Trim(w, ".,;:!?()[]\"'")); ok {
+				near = append(near, k)
 				kq := bleve.NewTermQuery(k)
 				kq.SetField("tickets")
 				kq.SetBoost(5)
@@ -240,24 +293,63 @@ func (ix *Index) Search(q Query) ([]Hit, error) {
 		bq.AddMustNot(dep)
 		root = bq
 	}
-	req := bleve.NewSearchRequestOptions(root, q.Limit, 0, false)
-	if text == "" {
+	// Ranked searches fetch a larger pool so the link-graph priors can lift a
+	// note from just past the cut; filter-only listings stay in path order.
+	rerank := text != ""
+	size := q.Limit
+	if rerank {
+		size = min(max(q.Limit*4, 20), 100)
+	}
+	req := bleve.NewSearchRequestOptions(root, size, 0, false)
+	if !rerank {
 		req.SortBy([]string{"path"})
 	}
 	res, err := ix.idx.Search(req)
 	if err != nil {
 		return nil, fmt.Errorf("search: %w", err)
 	}
-	hits := make([]Hit, 0, len(res.Hits))
+	var nearby map[string]bool
+	if rerank && len(near) > 0 {
+		nearby = ticketNeighbours(ix.snap, near)
+	}
+	type scored struct {
+		path  string
+		score float64
+	}
+	pool := make([]scored, 0, len(res.Hits))
 	for _, h := range res.Hits {
-		c, ok := ix.snap.Concepts[h.ID]
-		if !ok {
+		if _, ok := ix.snap.Concepts[h.ID]; !ok {
 			continue
 		}
+		sc := h.Score
+		if rerank {
+			if w, ok := ix.link[h.ID]; ok {
+				sc *= w
+			}
+			if nearby[h.ID] {
+				sc *= 1 + nearTicket
+			}
+		}
+		pool = append(pool, scored{h.ID, sc})
+	}
+	if rerank {
+		sort.SliceStable(pool, func(i, j int) bool {
+			if pool[i].score != pool[j].score {
+				return pool[i].score > pool[j].score
+			}
+			return pool[i].path < pool[j].path
+		})
+		if len(pool) > q.Limit {
+			pool = pool[:q.Limit]
+		}
+	}
+	hits := make([]Hit, 0, len(pool))
+	for _, h := range pool {
+		c := ix.snap.Concepts[h.path]
 		hits = append(hits, Hit{
-			Path: h.ID, Title: c.Title, Type: c.Type, Description: c.Description, Tags: c.Tags,
-			Tickets: ix.snap.NoteTickets[h.ID],
-			Snippet: Snippet(c.Body, text, 240), Score: round(h.Score),
+			Path: h.path, Title: c.Title, Type: c.Type, Description: c.Description, Tags: c.Tags,
+			Tickets: ix.snap.NoteTickets[h.path],
+			Snippet: Snippet(c.Body, text, 240), Score: round(h.score),
 		})
 	}
 	return hits, nil
