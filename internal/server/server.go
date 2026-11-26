@@ -68,6 +68,8 @@ type Server struct {
 	opts Options
 	MCP  *mcp.Server
 
+	imu sync.Mutex // one index rebuild at a time (see Refresh)
+
 	tmu      sync.Mutex
 	tcfg     *config.Config // config the tracker below was built from
 	tr       tracker.Tracker
@@ -91,7 +93,18 @@ func New(v *vault.Vault, ix *search.Index, opts Options) *Server {
 }
 
 // Refresh rebuilds the search index from a new snapshot.
+//
+// Reloads and their refreshes overlap (the watcher, writes, git, rescan), so
+// a refresh for an older snapshot can run after one for a newer snapshot. Each
+// rebuild therefore uses the vault's current snapshot, one at a time: the
+// last rebuild to run always indexes the newest snapshot. snap only says a
+// reload happened.
 func (s *Server) Refresh(snap *vault.Snapshot) {
+	s.imu.Lock()
+	defer s.imu.Unlock()
+	if cur := s.v.Snapshot(); cur != nil {
+		snap = cur
+	}
 	if err := s.ix.Rebuild(snap); err != nil {
 		slog.Warn("index rebuild failed", "err", err)
 	}
