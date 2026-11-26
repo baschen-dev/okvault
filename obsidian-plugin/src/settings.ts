@@ -23,7 +23,7 @@ const TEXT = {
   },
   binaryPath: {
     name: "okvault binary",
-    desc: "`okvault` if it is on your PATH (go install puts it in $GOPATH/bin), else its full path.",
+    desc: "The full path of the okvault program you downloaded, for example C:\\Users\\you\\okvault\\okvault.exe or /Users/you/okvault/okvault. `okvault` alone works if it is on your PATH (go install puts it in $GOPATH/bin).",
   },
   vaultFolder: {
     name: "okvault root",

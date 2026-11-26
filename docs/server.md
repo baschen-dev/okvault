@@ -12,6 +12,8 @@ okvault is one static Go binary. It needs no Obsidian process and no model downl
 
 ## Quick start
 
+Download the program for your system from the newest *okvault vX.Y.Z (program)* release on the [releases page](https://github.com/baschen-dev/okvault/releases). Each archive holds `okvault` (`okvault.exe` on Windows) and carries a build provenance attestation (`gh attestation verify FILE --repo baschen-dev/okvault`). With Go installed you can use `go install` instead:
+
 ```sh
 go install github.com/baschen-dev/okvault/cmd/okvault@latest
 okvault ask --vault ./vault "how do I add an faq"

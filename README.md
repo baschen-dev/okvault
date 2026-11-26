@@ -25,28 +25,38 @@ The plugin works on desktop only (Windows, macOS and Linux). It needs a small co
 
 In Obsidian, open *Settings → Community plugins → Browse*, search for **okvault**, then select *Install* and *Enable*.
 
-### 2. Install the okvault program
+### 2. Download the okvault program
 
-okvault is installed with Go, a free tool from Google. You only do this once.
+You only do this once per computer.
 
-1. Download and run the Go installer for your system from [go.dev/dl](https://go.dev/dl/).
-2. Open a terminal: *Terminal* on macOS or Linux, *PowerShell* on Windows. Run:
+1. Open the [releases page](https://github.com/baschen-dev/okvault/releases) and find the newest release named **okvault vX.Y.Z (program)**. Download the file for your system:
 
-   ```
-   go install github.com/baschen-dev/okvault/cmd/okvault@latest
-   ```
+   | System | File |
+   |---|---|
+   | Windows | `okvault_vX.Y.Z_windows_amd64.zip` |
+   | Mac with Apple silicon (M1 or later) | `okvault_vX.Y.Z_darwin_arm64.tar.gz` |
+   | Mac with an Intel processor | `okvault_vX.Y.Z_darwin_amd64.tar.gz` |
+   | Linux | `okvault_vX.Y.Z_linux_amd64.tar.gz` |
 
-3. Tell the plugin where the program is. In Obsidian, open *Settings → okvault* and set **okvault binary** to its full path:
+   Windows and Linux computers with an ARM processor use the `arm64` file instead.
+
+2. Unpack it: double-click it on macOS and Linux; on Windows, right-click it and choose *Extract All*. Make a folder called `okvault` in your home folder and move the program into it: `okvault.exe` on Windows, `okvault` on macOS and Linux.
+
+3. **macOS only:** macOS blocks downloaded programs that are not from the App Store. Double-click `okvault` once. When macOS says it cannot be opened, open *System Settings → Privacy & Security*, scroll down, and select *Open Anyway* next to okvault. A Terminal window opens and shows a short help text; that is expected, and you can close it.
+
+4. Tell the plugin where the program is. In Obsidian, open *Settings → okvault* and set **okvault binary** to its full path:
 
    | System | Path (replace `you` with your user name) |
    |---|---|
-   | Windows | `C:\Users\you\go\bin\okvault.exe` |
-   | macOS | `/Users/you/go/bin/okvault` |
-   | Linux | `/home/you/go/bin/okvault` |
+   | Windows | `C:\Users\you\okvault\okvault.exe` |
+   | macOS | `/Users/you/okvault/okvault` |
+   | Linux | `/home/you/okvault/okvault` |
 
-   `go env GOPATH` in the terminal prints the folder before `\bin` or `/bin` if yours is different.
+   To copy the exact path: on Windows, right-click the file, choose *Copy as path*, and remove the quotes around it after pasting. On macOS, right-click the file, hold the Option key, and choose *Copy "okvault" as Pathname*.
 
-To update okvault later, run the same `go install` command again and restart Obsidian. Keep the program and the plugin on the same version.
+To update okvault later, close Obsidian, download the new release, and replace the program in your `okvault` folder. Keep the program and the plugin on the same version.
+
+If you have Go installed, you can run `go install github.com/baschen-dev/okvault/cmd/okvault@latest` instead. The program then ends up in `go/bin` in your home folder.
 
 ### 3. Check it works
 
@@ -62,7 +72,7 @@ To let Claude Code use the same notes, run this once in a terminal, with the ful
 claude mcp add --scope user okvault -- okvault serve --vault "/path/to/your/vault" --author claude-code
 ```
 
-If the terminal does not find `okvault`, use its full path from step 2 instead. Other assistants that support MCP work too; see [Using okvault without Obsidian](docs/server.md#quick-start).
+If the terminal does not find `okvault`, replace the first `okvault` with the program's full path from step 2. Other assistants that support MCP work too; see [Using okvault without Obsidian](docs/server.md#quick-start).
 
 ## Your notes
 
