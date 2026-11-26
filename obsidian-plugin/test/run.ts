@@ -16,6 +16,7 @@ import { buildBundle, catalog, filterNotes, groupOf, inFolder, labelGeometry, la
 import { VaultIgnore, normalizeRoot } from "../src/paths.ts";
 import { DEFAULT_SETTINGS, cleanSetting, rootProblem } from "../src/settingsModel.ts";
 import { scalar } from "../src/text.ts";
+import { compareVersions, versionProblem } from "../src/version.ts";
 import { readVaultNotes } from "./vault-notes.ts";
 
 const VAULT = join(import.meta.dirname, "..", "..", "vault");
@@ -33,6 +34,19 @@ const fetchPost: Post = async (url, headers, body) => {
   r.headers.forEach((v, k) => (h[k] = v));
   return { status: r.status, headers: h, text: await r.text() };
 };
+
+// ---- version detection ----
+check("version: older release", compareVersions("v0.5.1", "0.5.2")! < 0);
+check("version: same release", compareVersions("v0.5.2", "0.5.2") === 0);
+check("version: newer minor", compareVersions("v0.6.0", "0.5.2")! > 0);
+check("version: numeric, not text", compareVersions("v0.10.0", "0.9.0")! > 0);
+check("version: git describe after a tag is newer", compareVersions("v0.5.2-3-gabc1234-dirty", "0.5.2")! > 0);
+check("version: git describe after an older tag is older", compareVersions("v0.5.1-3-gabc1234", "0.5.2")! < 0);
+check("version: pseudo-version after a tag", compareVersions("v0.5.3-0.20261126101500-abc123def456", "0.5.2")! > 0);
+check("version: pre-release is older", compareVersions("v0.5.2-rc.1", "0.5.2")! < 0);
+check("version: dev builds are unknown", compareVersions("dev-abc123", "0.5.2") === null && versionProblem("dev", "0.5.2") === "");
+check("version: problem names both versions", versionProblem("v0.5.1", "0.5.2").includes("v0.5.1") && versionProblem("v0.5.1", "0.5.2").includes("0.5.2"));
+check("version: no problem when current", versionProblem("v0.5.2", "0.5.2") === "");
 
 // ---- SSE parsing ----
 const msgs = parseMessages('event: message\ndata: {"jsonrpc":"2.0","id":3,"result":{"x":1}}\n\n');
