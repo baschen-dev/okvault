@@ -8,7 +8,7 @@ An Obsidian plugin that shows the vault the way okvault's agents see it.
   - Links between notes curve through their sections' anchors, so links between the same two sections run together.
   - A ring marks a note that needs a person: broken links, stale, agent edit not yet verified, draft, or no owner. These are `kb_review`'s reasons.
   - Hover a note to see its links. Click a note to open it, or click a section to focus it.
-  - Type and section chips filter the map. A filtered-out note leaves the map completely: its dot, its links, its place on the circle, and an emptied section's arc and table row. The remaining notes spread over the whole circle, and colours stay the same. *Show all* clears the filters. Filters are saved with the plugin's settings.
+  - Type and section chips filter the map. A filtered-out note leaves the map completely: its dot, its links, its place on the circle, and an emptied section's arc and table row. The remaining notes spread over the whole circle, and colours stay the same. Review chips (broken links, stale, agent edit not verified, draft, no owner, each with its count) work the other way round: pick one or more to see only the notes that need review for that reason. Broken links and drafts are known locally; the other reasons need a running okvault. *Show all* clears the filters. Filters are saved with the plugin's settings.
   - The table under the map lists the same data per section.
 
 - **Versioning and review** (right sidebar, or click `okvault ●` in the status bar). This panel shows:

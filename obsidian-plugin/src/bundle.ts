@@ -71,30 +71,55 @@ export function sectionOf(p: string): string {
   return i < 0 ? ROOT : p.slice(0, i);
 }
 
-/** What the bundle map leaves out: notes of these types or in these sections, and their links. */
+/**
+ * Why a note needs review: okvault's kb_review reasons for it (stale, unverified,
+ * no-owner, ...) plus what is known locally (broken links, draft status).
+ */
+export function reviewReasons(n: NoteInput, reasons: Map<string, string[]>): Set<string> {
+  const rs = new Set(reasons.get(n.path) ?? []);
+  if (n.broken > 0) rs.add("broken-links");
+  if ((n.status ?? "").toLowerCase() === "draft") rs.add("draft");
+  return rs;
+}
+
+/**
+ * What the bundle map shows: notes of hidden types or in hidden sections are left
+ * out, and when onlyReasons is not empty only notes with at least one of those
+ * review reasons stay.
+ */
 export interface GraphFilter {
   hiddenTypes: Set<string>;
   hiddenSections: Set<string>;
+  onlyReasons: Set<string>;
 }
 
 /** The concepts a filter keeps. Links to dropped notes vanish with them in buildBundle. */
-export function filterNotes<T extends NoteInput>(notes: T[], f: GraphFilter): T[] {
-  return notes.filter(
-    (n) => isConceptPath(n.path) && !f.hiddenTypes.has(n.type || UNTYPED) && !f.hiddenSections.has(sectionOf(n.path)),
-  );
+export function filterNotes<T extends NoteInput>(
+  notes: T[],
+  f: GraphFilter,
+  reasons: Map<string, string[]> = new Map(),
+): T[] {
+  return notes.filter((n) => {
+    if (!isConceptPath(n.path) || f.hiddenTypes.has(n.type || UNTYPED) || f.hiddenSections.has(sectionOf(n.path))) return false;
+    if (!f.onlyReasons.size) return true;
+    for (const r of reviewReasons(n, reasons)) if (f.onlyReasons.has(r)) return true;
+    return false;
+  });
 }
 
-/** Every type and section in the vault, filtered or not: the filter controls and the colours come from it. */
+/** Every type, section and review reason in the vault, filtered or not: the filter controls and the colours come from it. */
 export interface Catalog {
   types: string[]; // by frequency, then name (as Bundle.types)
   typeCount: Map<string, number>;
   sections: { name: string; count: number }[]; // in map order
+  reasonCount: Map<string, number>; // notes with each review reason
   total: number;
 }
 
-export function catalog(notes: NoteInput[]): Catalog {
+export function catalog(notes: NoteInput[], reasons: Map<string, string[]> = new Map()): Catalog {
   const typeCount = new Map<string, number>();
   const secCount = new Map<string, number>();
+  const reasonCount = new Map<string, number>();
   let total = 0;
   for (const n of notes) {
     if (!isConceptPath(n.path)) continue;
@@ -103,12 +128,13 @@ export function catalog(notes: NoteInput[]): Catalog {
     typeCount.set(t, (typeCount.get(t) ?? 0) + 1);
     const s = sectionOf(n.path);
     secCount.set(s, (secCount.get(s) ?? 0) + 1);
+    for (const r of reviewReasons(n, reasons)) reasonCount.set(r, (reasonCount.get(r) ?? 0) + 1);
   }
   const types = [...typeCount.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([t]) => t);
   const sections = [...secCount.entries()]
     .sort(([a], [b]) => (a === ROOT ? -1 : b === ROOT ? 1 : a.localeCompare(b)))
     .map(([name, count]) => ({ name, count }));
-  return { types, typeCount, sections, total };
+  return { types, typeCount, sections, reasonCount, total };
 }
 
 export function buildBundle(
@@ -150,9 +176,7 @@ export function buildBundle(
       const type = n.type || UNTYPED;
       types.set(type, (types.get(type) ?? 0) + 1);
       typeCount.set(type, (typeCount.get(type) ?? 0) + 1);
-      const rs = new Set(reasons.get(n.path) ?? []);
-      if (n.broken > 0) rs.add("broken-links");
-      if ((n.status ?? "").toLowerCase() === "draft") rs.add("draft");
+      const rs = reviewReasons(n, reasons);
       if (rs.size) review++;
       nodes.set(n.path, {
         path: n.path,

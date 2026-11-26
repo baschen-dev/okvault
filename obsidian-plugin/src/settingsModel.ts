@@ -16,6 +16,8 @@ export interface OkvaultSettings {
   /** Bundle map filters: types and sections left out of the graph. */
   graphHiddenTypes: string[];
   graphHiddenSections: string[];
+  /** Bundle map filter: when not empty, only notes with one of these review reasons. */
+  graphOnlyReasons: string[];
 }
 
 export const DEFAULT_SETTINGS: OkvaultSettings = {
@@ -28,6 +30,7 @@ export const DEFAULT_SETTINGS: OkvaultSettings = {
   vaultFolder: "",
   graphHiddenTypes: [],
   graphHiddenSections: [],
+  graphOnlyReasons: [],
 };
 
 /** The settings form edits these; the bundle map's filters are kept elsewhere. */

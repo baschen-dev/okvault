@@ -118,11 +118,11 @@
 .okvault-chip.is-off .okvault-swatch { background: transparent; border: 1px solid var(--text-faint); }
 .okvault-filter-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex-basis: 100%; }
 .okvault-filter-label { font-size: var(--font-ui-smaller); min-width: 4.5em; }
+.okvault-filter-hint { font-size: var(--font-ui-smaller); }
+.okvault-chip-only.is-selected { border-color: var(--interactive-accent); background: var(--background-modifier-hover); font-weight: var(--font-semibold); }
 .okvault-filter-reset { font-size: var(--font-ui-smaller); padding: 2px 8px; height: auto; }
 .okvault-setting-problem { color: var(--text-error); margin-top: 4px; }
 .okvault-setting-problem:empty { display: none; }
-.okvault-legend-review { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-ui-smaller); margin-left: auto; }
-.okvault-review-key { display: inline-flex; gap: 4px; align-items: center; color: var(--text-muted); }
 .okvault-ring-swatch { width: 10px; height: 10px; border-radius: 50%; border: 2px solid; }
 .okvault-ring-swatch.okvault-r-critical { border-color: var(--okv-critical); }
 .okvault-ring-swatch.okvault-r-serious { border-color: var(--okv-serious); }
