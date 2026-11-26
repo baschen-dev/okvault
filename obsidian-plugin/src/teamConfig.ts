@@ -14,6 +14,11 @@ export interface OwnerRow {
   owners: string[];
 }
 
+export interface FilterRow {
+  name: string;
+  jql: string;
+}
+
 export interface TeamConfig {
   git: {
     mode: GitMode;
@@ -30,6 +35,10 @@ export interface TeamConfig {
     projects: string[];
     api: "" | "2" | "3";
     browse: string;
+    /** Label on tickets whose knowledge is in the vault; drives the default "Missing docs" filter. */
+    doc_label: string;
+    /** Ticket lists (JQL); empty: okvault's defaults (My tickets, + Missing docs with doc_label). */
+    filters: FilterRow[];
   };
   owners: OwnerRow[];
 }
@@ -38,7 +47,7 @@ export function emptyConfig(): TeamConfig {
   return {
     git: { mode: "off", remote: "", base: "", branch: "", pull_interval: "", commit_edits: "" },
     review_interval: "",
-    tracker: { kind: "", url: "", projects: [], api: "", browse: "" },
+    tracker: { kind: "", url: "", projects: [], api: "", browse: "", doc_label: "", filters: [] },
     owners: [],
   };
 }
@@ -80,6 +89,8 @@ export function readTeamConfig(src: string): { config: TeamConfig; error?: strin
     projects: list(t.projects),
     api: str(t.api) === "2" || str(t.api) === "3" ? (str(t.api) as "2" | "3") : "",
     browse: str(t.browse),
+    doc_label: str(t.doc_label),
+    filters: Array.isArray(t.filters) ? t.filters.map((f) => ({ name: str(obj(f).name), jql: str(obj(f).jql) })) : [],
   };
   if (js.owners && typeof js.owners === "object") {
     for (const [folder, who] of Object.entries(js.owners)) c.owners.push({ folder, owners: list(who) });
@@ -129,6 +140,12 @@ export function applyTeamConfig(src: string, c: TeamConfig): string {
   } else if (doc.hasIn(["tracker", "projects"])) doc.deleteIn(["tracker", "projects"]);
   set(["tracker", "api"], c.tracker.api);
   set(["tracker", "browse"], c.tracker.browse);
+  set(["tracker", "doc_label"], c.tracker.doc_label);
+  const filters = c.tracker.filters.filter((f) => f.name.trim() || f.jql.trim()).map((f) => ({ name: f.name.trim(), jql: f.jql.trim() }));
+  if (filters.length && same(readTeamConfig(src).config.tracker.filters, filters)) {
+    // unchanged: keep the file's own layout and comments
+  } else if (filters.length) doc.setIn(["tracker", "filters"], doc.createNode(filters));
+  else if (doc.hasIn(["tracker", "filters"])) doc.deleteIn(["tracker", "filters"]);
 
   // Owners: drop folders no longer listed, then set each row (existing ones keep their place).
   const rows = c.owners.filter((r) => r.folder.trim() && r.owners.length);
@@ -173,6 +190,7 @@ function same(a: unknown, b: unknown): boolean {
 function normalized(c: TeamConfig): TeamConfig {
   const n = structuredClone(c);
   n.tracker.projects = n.tracker.projects.map((p) => p.toUpperCase());
+  n.tracker.filters = n.tracker.filters.filter((f) => f.name.trim() || f.jql.trim()).map((f) => ({ name: f.name.trim(), jql: f.jql.trim() }));
   if (n.git.remote === "origin") n.git.remote = "";
   n.owners = n.owners
     .filter((r) => r.folder.trim() && r.owners.length)
@@ -239,6 +257,15 @@ export function checkTeamConfig(c: TeamConfig): Map<string, string> {
   const bad = t.projects.map((p) => p.toUpperCase()).filter((p) => !projectKey.test(p));
   if (bad.length) add("tracker.projects", `not project keys: ${bad.join(", ")} (e.g. PROJ)`);
   if (t.browse && !t.browse.includes("{key}")) add("tracker.browse", "the browse URL needs {key} where the ticket key goes");
+  if (/[\s"]/.test(t.doc_label)) add("tracker.doc_label", `tracker.doc_label "${t.doc_label}": Jira labels have no spaces or quotes`);
+  const names = new Set<string>();
+  t.filters.forEach((f, i) => {
+    const name = f.name.trim();
+    if (!name && !f.jql.trim()) return;
+    if (!name || !f.jql.trim()) add(`tracker.filters.${i}`, "each filter needs a name and a JQL query");
+    if (names.has(name.toLowerCase())) add(`tracker.filters.${i}`, `"${name}" is listed twice`);
+    names.add(name.toLowerCase());
+  });
   const seen = new Set<string>();
   c.owners.forEach((r, i) => {
     if (!r.folder.trim() && !r.owners.length) return;

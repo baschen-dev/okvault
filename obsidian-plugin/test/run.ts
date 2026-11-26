@@ -230,6 +230,8 @@ try {
       bad = (e as Error).message;
     }
     check("kb_ticket rejects a non-key", bad.includes("not a ticket key"), bad);
+    const tl = await c.tickets();
+    check("kb_tickets without a tracker lists no filters, says why", tl.filters.length === 0 && !!tl.tracker_note?.includes("tracker"), JSON.stringify(tl));
 
     const g = await c.gaps();
     const top = g.gaps[0];
@@ -279,6 +281,18 @@ try {
   u.owners[1].owners = ["docs", "alice"];
   const out = applyTeamConfig(user, u);
   check("untouched keys and their comments stay as written", out.includes("mode: push # policy") && out.includes("ops: [team-ops] # on call") && out.includes(".: [docs, alice]"), out);
+
+  const jira = "tracker:\n  kind: jira\n  url: https://acme.atlassian.net\n  filters:\n    # ours\n    - name: Sprint\n      jql: sprint in openSprints()\n";
+  const j = readTeamConfig(jira).config;
+  check("reads tracker filters", j.tracker.filters.length === 1 && j.tracker.filters[0].jql === "sprint in openSprints()", JSON.stringify(j.tracker.filters));
+  j.tracker.doc_label = "documented";
+  const jl = applyTeamConfig(jira, j);
+  check("a doc label edit keeps the filters as written", jl.includes("# ours") && jl.includes("doc_label: documented"), jl);
+  j.tracker.filters.push({ name: "Mine", jql: "assignee = currentUser()" }, { name: "", jql: "" });
+  const jf = readTeamConfig(applyTeamConfig(jira, j)).config.tracker.filters;
+  check("adds a filter, drops an empty row", jf.length === 2 && jf[1].name === "Mine", JSON.stringify(jf));
+  j.tracker.filters = [];
+  check("no filters removes the key", !applyTeamConfig(jira, j).includes("filters"));
 }
 
 // Instant checks agree with okvault itself on what it accepts.
@@ -294,6 +308,11 @@ try {
     ["jira cloud", (c) => Object.assign(c.tracker, { kind: "jira", url: "https://acme.atlassian.net", projects: ["PROJ", "ops"] })],
     ["bad project key", (c) => Object.assign(c.tracker, { kind: "none", url: "https://x.example", projects: ["1BAD"] })],
     ["credentials in url", (c) => Object.assign(c.tracker, { kind: "jira", url: "https://me:pw@acme.atlassian.net" })],
+    ["doc label", (c) => Object.assign(c.tracker, { kind: "jira", url: "https://acme.atlassian.net", doc_label: "documented" })],
+    ["doc label with a space", (c) => Object.assign(c.tracker, { kind: "jira", url: "https://acme.atlassian.net", doc_label: "needs doc" })],
+    ["filters", (c) => Object.assign(c.tracker, { kind: "jira", url: "https://acme.atlassian.net", filters: [{ name: "Mine", jql: "assignee = currentUser()" }] })],
+    ["filter without jql", (c) => Object.assign(c.tracker, { kind: "jira", url: "https://acme.atlassian.net", filters: [{ name: "Mine", jql: "" }] })],
+    ["duplicate filter", (c) => Object.assign(c.tracker, { kind: "jira", url: "https://acme.atlassian.net", filters: [{ name: "A", jql: "x" }, { name: "a", jql: "y" }] })],
   ];
   let agree = 0;
   const disagreements: string[] = [];

@@ -133,6 +133,65 @@ type Tracker struct {
 	Projects []string `yaml:"projects"` // project keys, e.g. [PROJ, OPS]; used to spot ticket keys
 	API      string   `yaml:"api"`      // Jira REST version "3" or "2"; default 3 on atlassian.net, else 2
 	Browse   string   `yaml:"browse"`   // browse URL template with {key}; default {url}/browse/{key}
+	// DocLabel is the Jira label a ticket gets once what the team learned on
+	// it is documented, e.g. "documented". It drives the default
+	// "Missing docs" filter.
+	DocLabel string `yaml:"doc_label"`
+	// Filters are the ticket lists the ticket workspace and kb_tickets offer,
+	// as JQL. Unset: "My tickets", plus "Missing docs" when doc_label is set.
+	// A Jira saved filter is `jql: filter = 12345`.
+	Filters []Filter `yaml:"filters"`
+}
+
+// Filter is a named JQL query listing tickets.
+type Filter struct {
+	Name string `yaml:"name" json:"name"`
+	JQL  string `yaml:"jql" json:"jql"`
+}
+
+// Default filter names.
+const (
+	FilterMine        = "My tickets"
+	FilterMissingDocs = "Missing docs"
+)
+
+// TicketFilters returns the configured filters, or the defaults when none are
+// configured: the token owner's open tickets and, with a doc_label, finished
+// tickets that lack it. Both are limited to the configured projects.
+func (c *Config) TicketFilters() []Filter {
+	if c == nil {
+		return nil
+	}
+	t := c.Tracker
+	if len(t.Filters) > 0 {
+		return t.Filters
+	}
+	if t.Kind != "jira" {
+		return nil
+	}
+	scope := ""
+	if len(t.Projects) > 0 {
+		scope = "project in (" + strings.Join(t.Projects, ", ") + ") AND "
+	}
+	out := []Filter{{FilterMine, scope + "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"}}
+	if t.DocLabel != "" {
+		l := JQLString(t.DocLabel)
+		out = append(out, Filter{FilterMissingDocs, scope + "statusCategory = Done AND (labels is EMPTY OR labels not in (" + l + ")) ORDER BY updated DESC"})
+	}
+	return out
+}
+
+// FilterURL returns the Jira issue search page for a JQL query, or "" without a tracker URL.
+func (c *Config) FilterURL(jql string) string {
+	if c == nil || c.Tracker.URL == "" || c.Tracker.Kind != "jira" {
+		return ""
+	}
+	return c.Tracker.URL + "/issues/?jql=" + url.QueryEscape(jql)
+}
+
+// JQLString quotes s as a JQL string literal.
+func JQLString(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
 var projectKey = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,19}$`)
@@ -205,6 +264,22 @@ func Parse(src []byte) (*Config, error) {
 	if len(keys) > 0 {
 		sort.Sort(sort.Reverse(sort.StringSlice(keys))) // longer keys sharing a prefix first
 		c.keyRe = regexp.MustCompile(`\b(?:` + strings.Join(keys, "|") + `)-[1-9][0-9]*\b`)
+	}
+	t.DocLabel = strings.TrimSpace(t.DocLabel)
+	if strings.ContainsAny(t.DocLabel, " \t\n\"") {
+		return nil, fmt.Errorf("tracker.doc_label %q: Jira labels have no spaces or quotes", t.DocLabel)
+	}
+	seen := map[string]bool{}
+	for i, f := range t.Filters {
+		f.Name, f.JQL = strings.TrimSpace(f.Name), strings.TrimSpace(f.JQL)
+		if f.Name == "" || f.JQL == "" {
+			return nil, fmt.Errorf("tracker.filters[%d]: each filter needs a name and a jql", i)
+		}
+		if seen[strings.ToLower(f.Name)] {
+			return nil, fmt.Errorf("tracker.filters: %q is listed twice", f.Name)
+		}
+		seen[strings.ToLower(f.Name)] = true
+		t.Filters[i] = f
 	}
 	if err := c.Git.normalize(); err != nil {
 		return nil, err

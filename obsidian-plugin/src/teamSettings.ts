@@ -218,6 +218,7 @@ export class TeamSettingsSection {
       this.text(el, "tracker.browse", "Ticket link",
         "Optional link template with {key}; default is the URL + /browse/{key}.", "https://…/browse/{key}",
         () => c.tracker.browse, (v) => (c.tracker.browse = v));
+      if (c.tracker.kind === "jira") this.renderFilters(el, c);
     }
 
     // ---- save ----
@@ -235,6 +236,58 @@ export class TeamSettingsSection {
     details.createEl("summary", { text: `Preview ${CONFIG_FILE}` });
     this.previewEl = details.createEl("pre");
     this.changed();
+  }
+
+  /** The doc label and the ticket filters the ticket workspace lists. */
+  private renderFilters(el: HTMLElement, c: TeamConfig): void {
+    this.text(el, "tracker.doc_label", "Doc label",
+      "Jira label for tickets whose knowledge is recorded in the vault, e.g. documented. Adds the \"Missing docs\" filter: finished tickets without it.", "documented",
+      () => c.tracker.doc_label, (v) => (c.tracker.doc_label = v));
+    new Setting(el)
+      .setName("Ticket filters")
+      .setDesc(
+        "Ticket lists in the ticket workspace, as JQL (a Jira saved filter is filter = 12345). " +
+          "None: \"My tickets\" (open, assigned to whoever owns the token), plus \"Missing docs\" with a doc label.",
+      )
+      .addButton((b) =>
+        b.setButtonText("Add filter").onClick(() => {
+          if (!c.tracker.filters.length) {
+            // start from the defaults, so adding one does not silently drop them
+            const scope = c.tracker.projects.length ? `project in (${c.tracker.projects.map((p) => p.toUpperCase()).join(", ")}) AND ` : "";
+            c.tracker.filters.push({ name: "My tickets", jql: `${scope}assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC` });
+            if (c.tracker.doc_label)
+              c.tracker.filters.push({
+                name: "Missing docs",
+                jql: `${scope}statusCategory = Done AND (labels is EMPTY OR labels not in ("${c.tracker.doc_label}")) ORDER BY updated DESC`,
+              });
+          }
+          c.tracker.filters.push({ name: "", jql: "" });
+          this.render(el);
+        }),
+      );
+    c.tracker.filters.forEach((row, i) => {
+      const s = new Setting(el).setClass("okvault-owner-row");
+      s.addText((t) =>
+        t.setPlaceholder("name, e.g. Sprint").setValue(row.name).onChange((v) => {
+          row.name = v;
+          this.changed();
+        }),
+      );
+      s.addText((t) => {
+        t.setPlaceholder("JQL, e.g. sprint in openSprints()").setValue(row.jql).onChange((v) => {
+          row.jql = v;
+          this.changed();
+        });
+        t.inputEl.addClass("okvault-jql");
+      });
+      s.addExtraButton((b) =>
+        b.setIcon("trash").setTooltip("Remove").onClick(() => {
+          c.tracker.filters.splice(i, 1);
+          this.render(el);
+        }),
+      );
+      this.errorEls.set(`tracker.filters.${i}`, s.descEl.createDiv({ cls: "okvault-field-error" }));
+    });
   }
 
   /** A text setting bound to a field, with its own error line. */

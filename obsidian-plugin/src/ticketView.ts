@@ -1,5 +1,5 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
-import type { Entry, Hit, TicketContext } from "./client";
+import type { Entry, Hit, TicketContext, TicketFilter, TicketList } from "./client";
 import type OkvaultPlugin from "./main";
 import { folderFor, kebab, normalizeKey, notePath, ticketsOf } from "./noteFacts";
 import { Template, createNote, templates } from "./notes";
@@ -20,6 +20,11 @@ export class TicketView extends ItemView {
   private input!: HTMLInputElement;
   private body!: HTMLElement;
   private seq = 0;
+  /** The team's ticket filters (kb_tickets) and each one's result, by name; null until loaded. */
+  private filters: TicketFilter[] | null = null;
+  private filterNote = "";
+  private results = new Map<string, TicketList | { error: string } | "loading">();
+  private filterSeq = 0;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -50,6 +55,7 @@ export class TicketView extends ItemView {
     this.body = root.createDiv();
     this.registerEvent(this.app.metadataCache.on("resolved", () => !this.key && this.render()));
     this.render();
+    void this.loadFilters();
   }
 
   focus(): void {
@@ -257,6 +263,101 @@ export class TicketView extends ItemView {
     new Notice(`okvault: created ${r.rel}, linked to ${key}`);
   }
 
+  // ---- ticket filters: My tickets, Missing docs, the team's own ----
+
+  /** Loads the filter list, then every filter's tickets in parallel. */
+  async loadFilters(): Promise<void> {
+    const seq = ++this.filterSeq;
+    this.filterNote = "";
+    if (!(await this.plugin.ensureConnected())) {
+      if (seq !== this.filterSeq) return;
+      this.filters = [];
+      this.filterNote = `okvault is not reachable (${this.plugin.lastError}).`;
+      return this.renderIfIndex();
+    }
+    try {
+      const l = await this.plugin.client.tickets();
+      if (seq !== this.filterSeq) return;
+      this.filters = l.filters;
+      this.filterNote = l.tracker_note ?? "";
+    } catch (e) {
+      if (seq !== this.filterSeq) return;
+      this.filters = [];
+      this.filterNote = (e as Error).message;
+    }
+    this.results = new Map(this.filters.map((f) => [f.name, "loading" as const]));
+    this.renderIfIndex();
+    await Promise.all(
+      this.filters.map(async (f) => {
+        let r: TicketList | { error: string };
+        try {
+          r = await this.plugin.client.tickets(f.name);
+        } catch (e) {
+          r = { error: (e as Error).message };
+        }
+        if (seq !== this.filterSeq) return;
+        this.results.set(f.name, r);
+        this.renderIfIndex();
+      }),
+    );
+  }
+
+  private renderIfIndex(): void {
+    if (!this.key) this.render();
+  }
+
+  private renderFilters(el: HTMLElement): void {
+    if (this.filters === null) {
+      el.createDiv({ cls: "okvault-muted", text: "Loading ticket filters…" });
+      return;
+    }
+    if (!this.filters.length) {
+      if (this.filterNote) el.createDiv({ cls: "okvault-hint", text: `Ticket filters unavailable: ${this.filterNote}` });
+      return;
+    }
+    this.filters.forEach((f, i) => {
+      const r = this.results.get(f.name);
+      const tickets = r && r !== "loading" && "filters" in r ? r.tickets : undefined;
+      const sec = el.createDiv({ cls: "okvault-section" });
+      const head = sec.createDiv({ cls: "okvault-section-title okvault-filter-head", attr: { title: f.jql } });
+      head.createSpan({ text: tickets ? `${f.name} (${tickets.length})` : f.name });
+      if (f.url) head.createEl("a", { cls: "okvault-filter-link", text: "Jira ↗", href: f.url, attr: { title: `Open in Jira: ${f.jql}` } });
+      if (i === 0) {
+        const again = head.createEl("a", { cls: "okvault-filter-link", attr: { title: "Reload the ticket filters", "aria-label": "Reload" } });
+        setIcon(again, "refresh-cw");
+        again.addEventListener("click", () => void this.loadFilters());
+      }
+      if (!r || r === "loading") {
+        sec.createDiv({ cls: "okvault-muted", text: "Loading…" });
+        return;
+      }
+      if ("error" in r || r.tracker_note) {
+        sec.createDiv({ cls: "okvault-hint", text: `Tickets unavailable: ${"error" in r ? r.error : r.tracker_note}` });
+        return;
+      }
+      if (!tickets?.length) {
+        sec.createDiv({ cls: "okvault-muted", text: "No tickets" });
+        return;
+      }
+      for (const t of tickets) {
+        const row = sec.createDiv({ cls: "okvault-hit" });
+        row.addEventListener("click", () => this.show(t.key));
+        const top = row.createDiv({ cls: "okvault-hit-top" });
+        const name = top.createSpan({ cls: "okvault-hit-title" });
+        setIcon(name.createSpan({ cls: "okvault-insp-icon" }), "ticket");
+        name.appendText(t.key);
+        if (t.status) top.createSpan({ cls: `okvault-ticket-status okvault-cat-${kebab(t.status_category ?? "")}`, text: t.status });
+        const n = t.linked_notes;
+        top.createSpan({
+          cls: `okvault-type${n ? "" : " okvault-undocumented"}`,
+          text: n ? `${n} note${n > 1 ? "s" : ""}` : "no notes",
+          attr: { title: n ? "Notes listing this ticket in their tickets" : "No note lists this ticket yet" },
+        });
+        row.createDiv({ cls: "okvault-hit-desc", text: [t.summary, t.assignee].filter(Boolean).join(" · ") });
+      }
+    });
+  }
+
   // ---- the index: tickets the vault documents ----
 
   private renderIndex(el: HTMLElement): void {
@@ -266,6 +367,7 @@ export class TicketView extends ItemView {
       const chips = r.createDiv({ cls: "okvault-chips" });
       for (const k of this.recent) chips.createEl("a", { cls: "okvault-chip-link", text: k }).addEventListener("click", () => this.show(k));
     }
+    this.renderFilters(el);
     const byKey = new Map<string, { path: string; title: string }[]>();
     for (const n of this.plugin.localNotes()) {
       for (const k of ticketsOf(this.frontmatter(n.path))) {
