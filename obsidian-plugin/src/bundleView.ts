@@ -1,5 +1,5 @@
 import { ItemView, WorkspaceLeaf, debounce, setIcon } from "obsidian";
-import { Bundle, Catalog, GraphFilter, Node, arcPath, buildBundle, catalog, filterNotes, labelGeometry, labelRadius, pickLabels, polar, shortTitle, ROOT, UNTYPED } from "./bundle";
+import { Bundle, Catalog, GraphFilter, Node, arcPath, buildBundle, catalog, filterNotes, inFolder, labelGeometry, labelRadius, pickLabels, polar, shortTitle, ROOT, UNTYPED } from "./bundle";
 import type OkvaultPlugin from "./main";
 
 export const BUNDLE_VIEW = "okvault-bundle";
@@ -23,6 +23,10 @@ export class BundleView extends ItemView {
   private reviewSource: "server" | "local" = "local";
   private catalog: Catalog = { types: [], typeCount: new Map(), sections: [], reasonCount: new Map(), total: 0 };
   private focusSection: string | null = null;
+  /** The folder the map shows ("" = the whole vault); its subfolders are the sections. */
+  private folder = "";
+  private crumbEl!: HTMLElement;
+  private lastArcClick = { name: "", at: 0 };
   private svg!: SVGSVGElement;
   private tip!: HTMLElement;
   private legendEl!: HTMLElement;
@@ -55,6 +59,7 @@ export class BundleView extends ItemView {
     const root = this.contentEl;
     root.empty();
     root.addClass("okvault-bundle");
+    root.setAttr("tabindex", "-1"); // so Escape reaches it after a click on the map
 
     const bar = root.createDiv({ cls: "okvault-toolbar" });
     this.infoEl = bar.createDiv({ cls: "okvault-info" });
@@ -74,6 +79,7 @@ export class BundleView extends ItemView {
     });
 
     this.legendEl = root.createDiv({ cls: "okvault-legend" });
+    this.crumbEl = root.createDiv({ cls: "okvault-crumbs" });
     const wrap = root.createDiv({ cls: "okvault-chart" });
     this.chartEl = wrap;
     this.svg = wrap.createSvg("svg", {
@@ -88,6 +94,10 @@ export class BundleView extends ItemView {
     root.createDiv({ cls: "okvault-section-title", text: "Sections" });
     this.tableEl = root.createDiv({ cls: "okvault-table-wrap" });
 
+    // Escape goes back up one folder.
+    this.registerDomEvent(root, "keydown", (e) => {
+      if (e.key === "Escape" && this.folder) this.openFolder(this.folder.split("/").slice(0, -1).join("/"));
+    });
     this.registerEvent(this.app.metadataCache.on("resolved", () => this.rerender()));
     this.registerEvent(this.app.vault.on("delete", () => this.rerender()));
     this.registerEvent(this.app.vault.on("rename", () => this.rerender()));
@@ -154,7 +164,10 @@ export class BundleView extends ItemView {
     this.catalog = cat;
     const filter = this.filter();
     // Filtered notes are left out of the layout: no slot, no arc, no links, no row.
-    const b = buildBundle(filterNotes(all, filter, this.reasons), this.reasons, RADIUS);
+    const kept = filterNotes(all, filter, this.reasons);
+    // A folder left with no notes (filtered, moved, deleted): show the nearest one above that has some.
+    while (this.folder && !kept.some((n) => inFolder(n.path, this.folder))) this.folder = this.folder.split("/").slice(0, -1).join("/");
+    const b = buildBundle(kept, this.reasons, RADIUS, this.folder);
     this.bundle = b;
     // Colours come from the whole vault, so hiding a type never repaints the others.
     this.slot.clear();
@@ -169,7 +182,7 @@ export class BundleView extends ItemView {
     const filtered = b.nodes.size < cat.total;
     this.infoEl.createSpan({
       text:
-        `${filtered ? `${b.nodes.size} of ${cat.total}` : b.nodes.size} notes · ` +
+        (this.folder ? `${b.nodes.size} notes in ${this.folder}/ · ` : `${filtered ? `${b.nodes.size} of ${cat.total}` : b.nodes.size} notes · `) +
         `${b.sections.length} sections · ${b.edges.length} links · ${needs} need review`,
     });
     this.infoEl.createSpan({
@@ -181,6 +194,7 @@ export class BundleView extends ItemView {
     });
 
     this.renderLegend(b);
+    this.renderCrumbs();
     this.renderChart(b);
     this.renderTable(b);
   }
@@ -266,6 +280,9 @@ export class BundleView extends ItemView {
   private renderChart(b: Bundle): void {
     const svg = this.svg;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
+    // The hovered element is gone, so its mouseleave never comes: drop the hover state here.
+    svg.classList.remove("is-highlighting", "is-hover", "is-node-hover");
+    this.tip.hide();
     if (!b.nodes.size) {
       const t = el("text", { x: 0, y: 0, "text-anchor": "middle", class: "okvault-empty-text" });
       t.textContent = this.catalog.total
@@ -292,10 +309,17 @@ export class BundleView extends ItemView {
         d: arcPath(s.start, s.end, RADIUS + 16, RADIUS + 26),
         class: `okvault-arc ${this.focusSection === s.name ? "is-focus" : ""}`,
       });
-      arc.addEventListener("click", () => this.setFocus(this.focusSection === s.name ? null : s.name));
+      // Each click redraws the map, so a double-click is told apart here rather than by the browser.
+      arc.addEventListener("click", () => {
+        const now = Date.now();
+        const again = this.lastArcClick.name === s.name && now - this.lastArcClick.at < 450;
+        this.lastArcClick = again ? { name: "", at: 0 } : { name: s.name, at: now };
+        if (again && s.name !== ROOT) this.openFolder(this.fullPath(s.name));
+        else this.setFocus(this.focusSection === s.name ? null : s.name);
+      });
       arc.addEventListener("mouseenter", (ev) => {
         this.highlight(edgeEls, gNodes, (n) => n.section === s.name, (x, y) => b.nodes.get(x)!.section === s.name || b.nodes.get(y)!.section === s.name);
-        this.showTip(ev as MouseEvent, sectionTip(s.name, s.count, s.internal, s.external, s.review));
+        this.showTip(ev as MouseEvent, sectionTip(this.groupLabel(s.name), s.count, s.internal, s.external, s.review, s.name !== ROOT));
       });
       arc.addEventListener("mousemove", (ev) => this.moveTip(ev as MouseEvent));
       arc.addEventListener("mouseleave", () => this.clearHighlight(edgeEls, gNodes));
@@ -368,7 +392,7 @@ export class BundleView extends ItemView {
     for (const s of [...b.sections].sort((x, y) => y.count - x.count)) {
       const mid = (s.start + s.end) / 2;
       const p = polar(mid, RADIUS - 28);
-      const name = `${s.name === ROOT ? "(root)" : s.name}${labelled.size < nodes.length ? ` (${s.count})` : ""}`;
+      const name = `${s.name === ROOT ? this.groupLabel(ROOT) : s.name}${labelled.size < nodes.length ? ` (${s.count})` : ""}`;
       // inside the ring the name grows toward the centre
       const anchor = ({ start: "end", end: "start", middle: "middle" } as Record<string, string>)[anchorFor(mid)];
       const w = name.length * 0.6 * nameFont;
@@ -393,6 +417,53 @@ export class BundleView extends ItemView {
   private setFocus(name: string | null): void {
     this.focusSection = name;
     this.render();
+  }
+
+  /** Shows a folder ("" = the whole vault), its subfolders as the sections. */
+  openFolder(folder: string): void {
+    this.folder = folder;
+    this.focusSection = null;
+    this.render();
+    this.contentEl.focus({ preventScroll: true });
+  }
+
+  /** A section's folder, relative to the vault ("" for the vault's own top-level notes). */
+  private fullPath(group: string): string {
+    if (group === ROOT) return this.folder;
+    return this.folder ? `${this.folder}/${group}` : group;
+  }
+
+  private groupLabel(group: string): string {
+    if (group !== ROOT) return `${group}/`;
+    return this.folder ? "(this folder)" : "(root)";
+  }
+
+  /** Where the map is (Vault › a › b), and a button to open the focused section. */
+  private renderCrumbs(): void {
+    const el = this.crumbEl;
+    el.empty();
+    const parts = this.folder ? this.folder.split("/") : [];
+    const crumb = (text: string, target: string | null) => {
+      if (target === null) el.createSpan({ cls: "okvault-crumb is-here", text });
+      else el.createEl("a", { cls: "okvault-crumb", text }).addEventListener("click", () => this.openFolder(target));
+    };
+    if (parts.length) {
+      crumb("Vault", "");
+      parts.forEach((p, i) => {
+        el.createSpan({ cls: "okvault-muted", text: "›" });
+        crumb(p, i === parts.length - 1 ? null : parts.slice(0, i + 1).join("/"));
+      });
+    }
+    const f = this.focusSection;
+    if (f && f !== ROOT) {
+      const btn = el.createEl("button", { cls: "okvault-open-btn", text: `Open ${f}/` });
+      setIcon(btn.createSpan({ cls: "okvault-open-icon" }), "corner-right-down");
+      btn.addEventListener("click", () => this.openFolder(this.fullPath(f)));
+    } else if (!parts.length) {
+      el.createSpan({ cls: "okvault-muted", text: "Double-click a section to see it by subfolder." });
+    } else {
+      el.createSpan({ cls: "okvault-muted", text: "Esc goes back up." });
+    }
   }
 
   private applyFocus(edges: { from: string; to: string; el: SVGPathElement }[], gNodes: SVGGElement): void {
@@ -440,7 +511,7 @@ export class BundleView extends ItemView {
     d.createDiv({ cls: "okvault-tip-title", text: n.title });
     const meta = d.createDiv({ cls: "okvault-tip-meta" });
     meta.createSpan({ cls: `okvault-swatch ${this.slot.get(n.type)}` });
-    meta.createSpan({ text: `${n.type} · ${n.section === ROOT ? "root" : n.section}/` });
+    meta.createSpan({ text: `${n.type} · ${this.fullPath(n.section) || "root"}/` });
     d.createDiv({ cls: "okvault-tip-row", text: `${links} linked note${links === 1 ? "" : "s"}` });
     for (const r of REASONS) {
       if (n.reasons.has(r.key)) d.createDiv({ cls: `okvault-tip-row okvault-t-${r.cls}`, text: `${r.glyph} ${r.label}` });
@@ -477,11 +548,20 @@ export class BundleView extends ItemView {
       const tr = body.createEl("tr", { cls: this.focusSection === s.name ? "is-focus" : "" });
       tr.addEventListener("click", () => this.setFocus(this.focusSection === s.name ? null : s.name));
       const name = tr.createEl("td");
-      const link = name.createEl("a", { text: s.name === ROOT ? "(root)" : `${s.name}/` });
+      const link = name.createEl("a", { text: this.groupLabel(s.name), attr: { title: "Open the folder's index.md" } });
       link.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.plugin.openNote(s.name === ROOT ? "index.md" : `${s.name}/index.md`, e.ctrlKey || e.metaKey);
+        const dir = this.fullPath(s.name);
+        this.plugin.openNote(dir ? `${dir}/index.md` : "index.md", e.ctrlKey || e.metaKey);
       });
+      if (s.name !== ROOT) {
+        const open = name.createEl("button", { cls: "clickable-icon okvault-open-folder", attr: { "aria-label": `Show ${this.fullPath(s.name)}/ by subfolder` } });
+        setIcon(open, "corner-right-down");
+        open.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.openFolder(this.fullPath(s.name));
+        });
+      }
       tr.createEl("td", { text: String(s.count), cls: "is-num" });
       const types = tr.createEl("td");
       for (const [t, c] of [...s.types.entries()].sort((x, y) => y[1] - x[1])) {
@@ -496,13 +576,13 @@ export class BundleView extends ItemView {
   }
 }
 
-function sectionTip(name: string, count: number, internal: number, external: number, review: number): HTMLElement {
+function sectionTip(label: string, count: number, internal: number, external: number, review: number, opens: boolean): HTMLElement {
   const d = createDiv();
-  d.createDiv({ cls: "okvault-tip-title", text: name === ROOT ? "(root)" : `${name}/` });
+  d.createDiv({ cls: "okvault-tip-title", text: label });
   d.createDiv({ cls: "okvault-tip-row", text: `${count} note${count === 1 ? "" : "s"}` });
   d.createDiv({ cls: "okvault-tip-row", text: `${internal} links inside · ${external} to other sections` });
   if (review) d.createDiv({ cls: "okvault-tip-row okvault-t-warning", text: `⚠ ${review} need review` });
-  d.createDiv({ cls: "okvault-tip-path", text: "Click to focus" });
+  d.createDiv({ cls: "okvault-tip-path", text: opens ? "Click to focus · double-click to open" : "Click to focus" });
   return d;
 }
 
