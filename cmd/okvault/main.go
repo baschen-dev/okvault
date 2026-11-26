@@ -31,7 +31,7 @@ import (
 	"github.com/baschen-dev/okvault/internal/vault"
 )
 
-var version = "dev" // set with -ldflags "-X main.version=..."
+var version = "dev" // set with -ldflags "-X main.version=..."; else from Go's build info (version.go)
 
 const usage = `okvault - OKF knowledge vault for AI agents (MCP)
 
