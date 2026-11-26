@@ -11,6 +11,7 @@ import {
   type TeamConfig,
   type TrackerKind,
 } from "./teamConfig";
+import { act } from "./act";
 
 const MODES: Record<GitMode, string> = {
   off: "Off: okvault never runs git",
@@ -226,12 +227,12 @@ export class TeamSettingsSection {
     this.statusEl = foot.createDiv({ cls: "okvault-team-status" });
     const buttons = foot.createDiv({ cls: "okvault-team-buttons" });
     const revert = buttons.createEl("button", { text: "Revert" });
-    revert.addEventListener("click", async () => {
+    revert.addEventListener("click", act(async () => {
       await this.load();
       this.render(el);
-    });
+    }));
     this.saveBtn = buttons.createEl("button", { text: "Save", cls: "mod-cta" });
-    this.saveBtn.addEventListener("click", () => this.save(el));
+    this.saveBtn.addEventListener("click", act(() => this.save(el)));
     const details = el.createEl("details", { cls: "okvault-preview" });
     details.createEl("summary", { text: `Preview ${CONFIG_FILE}` });
     this.previewEl = details.createEl("pre");

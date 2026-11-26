@@ -11,6 +11,8 @@ import { TICKET_KEY, isProjectKey, normalizeKey, ticketKeyAt } from "./noteFacts
 import { TEAM_VIEW, TeamView } from "./teamView";
 import { DEFAULT_SETTINGS, OkvaultSettingTab, OkvaultSettings } from "./settings";
 import { IGNORE_FILE, VaultIgnore, normalizeRoot } from "./paths";
+import { act, background } from "./act";
+import { scalar } from "./text";
 
 export interface LocalNote extends NoteInput {
   aliases: string[];
@@ -95,7 +97,7 @@ export default class OkvaultPlugin extends Plugin {
       name: "Ask the FAQ about the selection",
       editorCallback: (editor) => {
         const sel = editor.getSelection().trim();
-        this.openFaq(sel || undefined);
+        background(this.openFaq(sel || undefined));
       },
     });
     this.addCommand({ id: "bundle", name: "Open the bundle map", callback: () => this.openBundle() });
@@ -119,7 +121,7 @@ export default class OkvaultPlugin extends Plugin {
     // Ticket keys of the team's projects become links to the ticket workspace in reading view.
     this.registerMarkdownPostProcessor((el) => {
       if (!this.ticketProjects.length) return;
-      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const walker = el.doc.createTreeWalker(el, NodeFilter.SHOW_TEXT); // el's own window, popouts included
       const hits: Text[] = [];
       for (let n = walker.nextNode(); n; n = walker.nextNode()) {
         const parent = n.parentElement;
@@ -168,7 +170,7 @@ export default class OkvaultPlugin extends Plugin {
     this.addSettingTab(new OkvaultSettingTab(this.app, this));
     this.statusBar = this.addStatusBarItem();
     this.statusBar.addClass("okvault-statusbar");
-    this.statusBar.addEventListener("click", () => this.openTeam());
+    this.statusBar.addEventListener("click", act(() => this.openTeam()));
     this.updateStatusBar();
 
     this.app.workspace.onLayoutReady(async () => {
@@ -198,7 +200,7 @@ export default class OkvaultPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<OkvaultSettings> | null);
     // Older versions saved "." or "/" as is; those mean the vault root.
     this.settings.vaultFolder = normalizeRoot(this.settings.vaultFolder) ?? "";
   }
@@ -340,10 +342,10 @@ export default class OkvaultPlugin extends Plugin {
       const y = (parseYaml(await this.app.vault.adapter.read(p)) ?? {}) as { git?: Record<string, unknown> };
       const g = y.git ?? {};
       this.teamGit = {
-        mode: String(g.mode ?? "off").toLowerCase(),
-        base: g.base ? String(g.base) : undefined,
-        commitEdits: g.commit_edits ? String(g.commit_edits) : undefined,
-        pullInterval: g.pull_interval !== undefined ? String(g.pull_interval) : undefined,
+        mode: (scalar(g.mode) || "off").toLowerCase(),
+        base: scalar(g.base) || undefined,
+        commitEdits: scalar(g.commit_edits) || undefined,
+        pullInterval: g.pull_interval !== undefined ? scalar(g.pull_interval) : undefined,
       };
       const t = ((y as { tracker?: { projects?: unknown } }).tracker?.projects ?? []) as unknown;
       this.ticketProjects = (Array.isArray(t) ? t : String(t).split(/[,\s]+/)).map((x) => String(x).trim().toUpperCase()).filter(Boolean);

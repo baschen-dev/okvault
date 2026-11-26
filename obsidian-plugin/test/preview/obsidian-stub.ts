@@ -21,6 +21,7 @@ P.setAttr = function (k: string, v: string) { this.setAttribute(k, v); };
 P.hide = function () { this.style.display = "none"; };
 P.appendText = function (t: string) { this.append(document.createTextNode(t)); };
 P.show = function () { this.style.display = ""; };
+Object.defineProperty(P, "doc", { get() { return this.ownerDocument; } });
 (globalThis as any).createDiv = (o?: Attrs) => document.createElement("div").createDiv(o);
 const svg = (tag: string, o: { attr?: Record<string, string | number> } = {}, parent?: Element) => {
   const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -69,6 +70,8 @@ export class PluginSettingTab {
   containerEl = document.createElement("div");
   constructor(public app: any, public plugin: any) {}
 }
+/** The preview stands in for the newest Obsidian. */
+export function requireApiVersion(_version: string): boolean { return true; }
 export class SettingPage {
   containerEl = document.createElement("div");
   title = "";

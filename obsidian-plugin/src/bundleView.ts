@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf, debounce, setIcon } from "obsidian";
 import { Bundle, Catalog, GraphFilter, Node, arcPath, buildBundle, catalog, filterNotes, inFolder, labelGeometry, labelRadius, pickLabels, polar, shortTitle, ROOT, UNTYPED } from "./bundle";
 import type OkvaultPlugin from "./main";
+import { act, background } from "./act";
 
 export const BUNDLE_VIEW = "okvault-bundle";
 
@@ -65,7 +66,7 @@ export class BundleView extends ItemView {
     this.infoEl = bar.createDiv({ cls: "okvault-info" });
     const btn = bar.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Rescan the vault (okvault re-reads every note: broken links, review status, .vaultignore)" } });
     setIcon(btn, "refresh-cw");
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", act(async () => {
       btn.disabled = true;
       try {
         // Offline, rescan does nothing: still redraw from Obsidian's own cache.
@@ -76,7 +77,7 @@ export class BundleView extends ItemView {
       } finally {
         btn.disabled = false;
       }
-    });
+    }));
 
     this.legendEl = root.createDiv({ cls: "okvault-legend" });
     this.crumbEl = root.createDiv({ cls: "okvault-crumbs" });
@@ -319,9 +320,9 @@ export class BundleView extends ItemView {
       });
       arc.addEventListener("mouseenter", (ev) => {
         this.highlight(edgeEls, gNodes, (n) => n.section === s.name, (x, y) => b.nodes.get(x)!.section === s.name || b.nodes.get(y)!.section === s.name);
-        this.showTip(ev as MouseEvent, sectionTip(this.groupLabel(s.name), s.count, s.internal, s.external, s.review, s.name !== ROOT));
+        this.showTip(ev, sectionTip(this.groupLabel(s.name), s.count, s.internal, s.external, s.review, s.name !== ROOT));
       });
-      arc.addEventListener("mousemove", (ev) => this.moveTip(ev as MouseEvent));
+      arc.addEventListener("mousemove", (ev) => this.moveTip(ev));
       arc.addEventListener("mouseleave", () => this.clearHighlight(edgeEls, gNodes));
       gArcs.appendChild(arc);
     }
@@ -362,12 +363,12 @@ export class BundleView extends ItemView {
       };
       g.addEventListener("mouseenter", enter);
       g.addEventListener("focus", enter);
-      g.addEventListener("mousemove", (ev) => this.moveTip(ev as MouseEvent));
+      g.addEventListener("mousemove", (ev) => this.moveTip(ev));
       g.addEventListener("mouseleave", () => this.clearHighlight(edgeEls, gNodes));
       g.addEventListener("blur", () => this.clearHighlight(edgeEls, gNodes));
-      g.addEventListener("click", (ev) => this.plugin.openNote(n.path, (ev as MouseEvent).ctrlKey || (ev as MouseEvent).metaKey));
+      g.addEventListener("click", act((ev) => this.plugin.openNote(n.path, (ev as MouseEvent).ctrlKey || (ev as MouseEvent).metaKey)));
       g.addEventListener("keydown", (ev) => {
-        if ((ev as KeyboardEvent).key === "Enter") this.plugin.openNote(n.path, false);
+        if (ev.key === "Enter") background(this.plugin.openNote(n.path, false));
       });
       gNodes.appendChild(g);
 
@@ -552,7 +553,7 @@ export class BundleView extends ItemView {
       link.addEventListener("click", (e) => {
         e.stopPropagation();
         const dir = this.fullPath(s.name);
-        this.plugin.openNote(dir ? `${dir}/index.md` : "index.md", e.ctrlKey || e.metaKey);
+        background(this.plugin.openNote(dir ? `${dir}/index.md` : "index.md", e.ctrlKey || e.metaKey));
       });
       if (s.name !== ROOT) {
         const open = name.createEl("button", { cls: "clickable-icon okvault-open-folder", attr: { "aria-label": `Show ${this.fullPath(s.name)}/ by subfolder` } });

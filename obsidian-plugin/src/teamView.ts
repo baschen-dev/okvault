@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf, setIcon } from "obsidian";
 import type { ReviewItem } from "./client";
 import type OkvaultPlugin from "./main";
+import { act } from "./act";
 
 export const TEAM_VIEW = "okvault-team";
 
@@ -77,7 +78,7 @@ export class TeamView extends ItemView {
     const btn = head.createEl("button", { text: p.syncing ? "Syncing…" : "Sync now", cls: "mod-cta" });
     btn.disabled = p.syncing || t.mode === "off";
     btn.setAttr("title", "Commit edits made here, rebase on the remote, push and update the pull request (okvault sync)");
-    btn.addEventListener("click", () => p.sync());
+    btn.addEventListener("click", act(() => p.sync()));
 
     if (t.error) el.createDiv({ cls: "okvault-problem", text: t.error });
     if (t.mode === "off") {
@@ -155,11 +156,11 @@ export class TeamView extends ItemView {
       attr: { "aria-label": "Rescan the vault (okvault re-reads every note: broken links, review status)" },
     });
     setIcon(rescan, "refresh-cw");
-    rescan.addEventListener("click", async () => {
+    rescan.addEventListener("click", act(async () => {
       rescan.disabled = true;
       await this.plugin.rescan();
       rescan.disabled = false;
-    });
+    }));
     if (this.reviewError) {
       el.createDiv({ cls: "okvault-muted", text: this.reviewError });
       return;
@@ -172,7 +173,7 @@ export class TeamView extends ItemView {
       const row = el.createDiv({ cls: "okvault-hit okvault-review" });
       const top = row.createDiv({ cls: "okvault-hit-top" });
       const title = top.createSpan({ cls: "okvault-hit-title", text: it.title || it.path });
-      title.addEventListener("click", (e) => this.plugin.openNote(it.path, e.ctrlKey || e.metaKey));
+      title.addEventListener("click", act((e) => this.plugin.openNote(it.path, e.ctrlKey || e.metaKey)));
       if (it.type) top.createSpan({ text: it.type, cls: "okvault-type" });
       const reasons = row.createDiv({ cls: "okvault-reasons" });
       for (const r of it.reasons) reasons.createSpan({ cls: `okvault-reason okvault-reason-${r}`, text: REASON_LABEL[r] ?? r });
@@ -187,14 +188,14 @@ export class TeamView extends ItemView {
         const b = row.createEl("button", { text: this.busy.has(it.path) ? "Recording…" : "Mark as checked", cls: "okvault-verify" });
         b.disabled = this.busy.has(it.path);
         b.setAttr("title", "okvault verify: records that you read this note and it is correct");
-        b.addEventListener("click", async (e) => {
+        b.addEventListener("click", act(async (e) => {
           e.stopPropagation();
           this.busy.add(it.path);
           this.render();
           await this.plugin.verify(it.path);
           this.busy.delete(it.path);
           await this.reload();
-        });
+        }));
       }
     }
   }

@@ -1,6 +1,7 @@
 // The plugin's own settings: defaults, and how a typed value is cleaned up and
 // checked before it is saved. Pure: no Obsidian import, so it is tested under Node.
 import { normalizeRoot } from "./paths.ts";
+import { scalar } from "./text.ts";
 
 export interface OkvaultSettings {
   /** okvault's MCP endpoint, as printed by `okvault serve --port N`. */
@@ -52,15 +53,15 @@ export function rootProblem(raw: string, folderExists: (path: string) => boolean
 export function cleanSetting(key: string, value: unknown): OkvaultSettings[EditableKey] | undefined {
   switch (key) {
     case "serverUrl":
-      return String(value ?? "").trim() || DEFAULT_SETTINGS.serverUrl;
+      return scalar(value).trim() || DEFAULT_SETTINGS.serverUrl;
     case "binaryPath":
-      return String(value ?? "").trim() || DEFAULT_SETTINGS.binaryPath;
+      return scalar(value).trim() || DEFAULT_SETTINGS.binaryPath;
     case "autoStart":
       return value === true;
     case "versioning":
       return value === "off" ? "off" : "follow";
     case "vaultFolder":
-      return normalizeRoot(String(value ?? "")) ?? undefined;
+      return normalizeRoot(scalar(value)) ?? undefined;
     default:
       return undefined;
   }
