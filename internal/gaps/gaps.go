@@ -96,7 +96,9 @@ func (l *Log) append(e Entry) error {
 		return err
 	}
 	// One O_APPEND write per line keeps concurrent okvault processes from interleaving.
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := openRetry(func() (*os.File, error) {
+		return os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	})
 	if err != nil {
 		return err
 	}
@@ -111,6 +113,18 @@ func (l *Log) append(e Entry) error {
 		_ = l.rotate()
 	}
 	return werr
+}
+
+// openRetry opens the log, waiting out the moment (on Windows) when another
+// okvault is renaming its rotated copy into place.
+func openRetry(open func() (*os.File, error)) (*os.File, error) {
+	for i := 0; ; i++ {
+		f, err := open()
+		if err == nil || i == 6 || !busy(err) {
+			return f, err
+		}
+		time.Sleep(time.Duration(5<<i) * time.Millisecond) // 5ms .. 160ms, ~315ms in all
+	}
 }
 
 // rotate keeps the newest lines. Caller holds mu. A line another process
@@ -150,7 +164,7 @@ func (l *Log) rotate() error {
 func (l *Log) Read() ([]Entry, map[string]bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	f, err := os.Open(l.path)
+	f, err := openRetry(func() (*os.File, error) { return os.Open(l.path) })
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, map[string]bool{}, nil
 	}
