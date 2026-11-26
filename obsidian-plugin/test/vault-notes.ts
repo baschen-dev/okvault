@@ -11,6 +11,19 @@ function walk(dir: string): string[] {
   });
 }
 
+/** A YAML scalar as Obsidian reads it: quoted strings lose their quotes. */
+function unquote(v: string): string {
+  if (v.startsWith('"') && v.endsWith('"') && v.length > 1) {
+    try {
+      return JSON.parse(v);
+    } catch {
+      return v.slice(1, -1);
+    }
+  }
+  if (v.startsWith("'") && v.endsWith("'") && v.length > 1) return v.slice(1, -1).replace(/''/g, "'");
+  return v;
+}
+
 export function readVaultNotes(vault: string): (NoteInput & { aliases: string[]; description: string })[] {
   const ignoreFile = join(vault, IGNORE_FILE);
   const ignore = new VaultIgnore(existsSync(ignoreFile) ? readFileSync(ignoreFile, "utf8") : "");
@@ -21,7 +34,7 @@ export function readVaultNotes(vault: string): (NoteInput & { aliases: string[];
       const path = rel(abs);
       const text = readFileSync(abs, "utf8").replace(/\r\n/g, "\n");
       const fm = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
-      const get = (k: string) => new RegExp(`^${k}:\s*(.+)$`, "m").exec(fm)?.[1].trim() ?? "";
+      const get = (k: string) => unquote(new RegExp(`^${k}:\s*(.+)$`, "m").exec(fm)?.[1].trim() ?? "");
       const targets = [...text.matchAll(/\]\(([^)#\s]+\.md)\)/g)].map((m) =>
         m[1].startsWith("/") ? m[1].slice(1) : posix.normalize(posix.join(dirname(path), m[1])),
       );

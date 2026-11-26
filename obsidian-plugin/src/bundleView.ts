@@ -1,12 +1,11 @@
 import { ItemView, WorkspaceLeaf, debounce, setIcon } from "obsidian";
-import { Bundle, Catalog, GraphFilter, Node, arcPath, buildBundle, catalog, filterNotes, polar, ROOT, UNTYPED } from "./bundle";
+import { Bundle, Catalog, GraphFilter, Node, arcPath, buildBundle, catalog, filterNotes, labelGeometry, labelRadius, pickLabels, polar, shortTitle, ROOT, UNTYPED } from "./bundle";
 import type OkvaultPlugin from "./main";
 
 export const BUNDLE_VIEW = "okvault-bundle";
 
 const RADIUS = 260;
 const MAX_SLOTS = 7; // categorical slots; further types fold into "Other"
-const LABEL_LIMIT = 120; // above this many notes, titles show on hover only
 
 /** Review reasons, most urgent first, as okvault's kb_review names them. */
 const REASONS: { key: string; label: string; glyph: string; cls: string }[] = [
@@ -30,6 +29,8 @@ export class BundleView extends ItemView {
   private infoEl!: HTMLElement;
   private tableEl!: HTMLElement;
   private slot = new Map<string, string>(); // type -> css class
+  private chartEl!: HTMLElement;
+  private drawnWidth = 0; // chart width the labels were sized for
 
   private rerender = debounce(() => this.render(), 400, true);
 
@@ -74,8 +75,9 @@ export class BundleView extends ItemView {
 
     this.legendEl = root.createDiv({ cls: "okvault-legend" });
     const wrap = root.createDiv({ cls: "okvault-chart" });
+    this.chartEl = wrap;
     this.svg = wrap.createSvg("svg", {
-      attr: { viewBox: "-470 -400 940 800", role: "img", "aria-label": "Bundle map: notes grouped by section, coloured by type, with their links" },
+      attr: { viewBox: "-400 -400 800 800", role: "img", "aria-label": "Bundle map: notes grouped by section, coloured by type, with their links" },
     });
     this.tip = wrap.createDiv({ cls: "okvault-tip" });
     this.tip.hide();
@@ -90,6 +92,18 @@ export class BundleView extends ItemView {
     this.registerEvent(this.app.vault.on("delete", () => this.rerender()));
     this.registerEvent(this.app.vault.on("rename", () => this.rerender()));
     await this.reload();
+  }
+
+  /** Labels are sized for the pane: redraw when its width changes noticeably. */
+  override onResize(): void {
+    const w = this.chartWidth();
+    if (this.bundle && Math.abs(w - this.drawnWidth) > 40) this.rerender();
+  }
+
+  /** On-screen size of the (square) chart, in pixels. */
+  private chartWidth(): number {
+    const w = this.chartEl?.clientWidth || 700;
+    return Math.max(200, Math.min(w, 980, window.innerHeight * 0.75 || w));
   }
 
   /** Fetch review reasons from okvault (if reachable), then redraw. */
@@ -286,30 +300,29 @@ export class BundleView extends ItemView {
       arc.addEventListener("mousemove", (ev) => this.moveTip(ev as MouseEvent));
       arc.addEventListener("mouseleave", () => this.clearHighlight(edgeEls, gNodes));
       gArcs.appendChild(arc);
-      // Many notes: no titles outside, so the section names go there.
-      if (b.nodes.size > LABEL_LIMIT) {
-        const mid = (s.start + s.end) / 2;
-        const lp = polar(mid, RADIUS + 40);
-        const lbl = el("text", {
-          x: lp.x.toFixed(1),
-          y: lp.y.toFixed(1),
-          class: "okvault-arc-label",
-          "text-anchor": anchorFor(mid),
-          "dominant-baseline": "middle",
-        });
-        lbl.textContent = `${s.name} (${s.count})`;
-        gLabels.appendChild(lbl);
-      }
     }
 
-    const showTitles = b.nodes.size <= LABEL_LIMIT;
-    for (const n of b.nodes.values()) {
+    // Labels: sized for this pane, along the radius, as many as fit a line-height apart.
+    const screen = this.chartWidth();
+    this.drawnWidth = screen;
+    const geo = labelGeometry(RADIUS, screen);
+    this.svg.setAttribute("viewBox", `${-geo.half} ${-geo.half} ${2 * geo.half} ${2 * geo.half}`);
+    gLabels.setAttribute("style", `font-size:${geo.font.toFixed(1)}px`);
+    const nodes = [...b.nodes.values()];
+    const labelled = geo.maxChars ? pickLabels(nodes, RADIUS, geo.font) : new Set<string>();
+    // Dots and rings shrink to the space between notes; links fade as they multiply.
+    const spacing = (2 * Math.PI * RADIUS) / Math.max(1, nodes.length);
+    const dotMax = Math.max(1.5, Math.min(7.5, spacing * 0.42));
+    gEdges.setAttribute("style", `--okv-edge-opacity:${Math.max(0.06, Math.min(0.35, 0.35 * Math.sqrt(150 / Math.max(1, b.edges.length)))).toFixed(2)}`);
+    const lr = labelRadius(RADIUS);
+
+    for (const n of nodes) {
       const g = el("g", { class: "okvault-node", "data-path": n.path, tabindex: "0" });
       const reason = REASONS.find((r) => n.reasons.has(r.key));
+      const r = Math.min(dotMax, 4.5 + Math.min(3, Math.sqrt(n.degree)));
       if (reason) {
-        g.appendChild(el("circle", { cx: n.x.toFixed(1), cy: n.y.toFixed(1), r: 8.5, class: `okvault-ring okvault-r-${reason.cls}` }));
+        g.appendChild(el("circle", { cx: n.x.toFixed(1), cy: n.y.toFixed(1), r: (r + Math.min(4, Math.max(1.5, r * 0.5))).toFixed(1), class: `okvault-ring okvault-r-${reason.cls}` }));
       }
-      const r = 4.5 + Math.min(3, Math.sqrt(n.degree));
       g.appendChild(el("circle", { cx: n.x.toFixed(1), cy: n.y.toFixed(1), r: r.toFixed(1), class: `okvault-dot ${this.slot.get(n.type)}` }));
       // Hit target bigger than the mark.
       g.appendChild(el("circle", { cx: n.x.toFixed(1), cy: n.y.toFixed(1), r: 12, class: "okvault-hit-target" }));
@@ -320,6 +333,7 @@ export class BundleView extends ItemView {
           if (e.to === n.path) linked.add(e.from);
         }
         this.highlight(edgeEls, gNodes, (m) => linked.has(m.path), (x, y) => x === n.path || y === n.path);
+        this.svg.classList.add("is-node-hover");
         if (ev instanceof MouseEvent) this.showTip(ev, this.nodeTip(n, linked.size - 1));
       };
       g.addEventListener("mouseenter", enter);
@@ -333,36 +347,45 @@ export class BundleView extends ItemView {
       });
       gNodes.appendChild(g);
 
-      if (showTitles) {
-        const lp = polar(n.angle, RADIUS + 34);
-        const t = el("text", {
-          x: lp.x.toFixed(1),
-          y: lp.y.toFixed(1),
-          class: "okvault-label",
-          "text-anchor": anchorFor(n.angle),
-          "dominant-baseline": "middle",
-          "data-path": n.path,
-        });
-        t.textContent = truncate(n.title, 26);
-        gLabels.appendChild(t);
-      }
+      // Every note gets a label; the ones that do not fit show only while a linked note is hovered.
+      const deg = (n.angle * 180) / Math.PI;
+      const left = Math.sin(n.angle) < 0;
+      const t = el("text", {
+        transform: `rotate(${(deg - 90).toFixed(2)}) translate(${lr},0)${left ? " rotate(180)" : ""}`,
+        class: `okvault-label ${labelled.has(n.path) ? "" : "is-extra"}`,
+        "text-anchor": left ? "end" : "start",
+        "dominant-baseline": "middle",
+        "data-path": n.path,
+      });
+      t.textContent = shortTitle(n.title, geo.maxChars || 26);
+      gLabels.appendChild(t);
     }
 
-    // Section names in the middle ring when titles take the outside.
-    if (showTitles) {
-      for (const s of b.sections) {
-        const mid = (s.start + s.end) / 2;
-        const p = polar(mid, RADIUS - 24);
-        const t = el("text", {
-          x: p.x.toFixed(1),
-          y: p.y.toFixed(1),
-          class: "okvault-section-label",
-          "text-anchor": "middle",
-          "dominant-baseline": "middle",
-        });
-        t.textContent = s.name;
-        gLabels.appendChild(t);
-      }
+    // Section names inside the ring, where they never meet the titles. Biggest first;
+    // a name too close to one already placed is left to the arc's tooltip.
+    const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
+    const nameFont = geo.font * 1.1;
+    for (const s of [...b.sections].sort((x, y) => y.count - x.count)) {
+      const mid = (s.start + s.end) / 2;
+      const p = polar(mid, RADIUS - 28);
+      const name = `${s.name === ROOT ? "(root)" : s.name}${labelled.size < nodes.length ? ` (${s.count})` : ""}`;
+      // inside the ring the name grows toward the centre
+      const anchor = ({ start: "end", end: "start", middle: "middle" } as Record<string, string>)[anchorFor(mid)];
+      const w = name.length * 0.6 * nameFont;
+      const x0 = anchor === "end" ? p.x - w : anchor === "start" ? p.x : p.x - w / 2;
+      const box = { x0, x1: x0 + w, y0: p.y - nameFont * 0.7, y1: p.y + nameFont * 0.7 };
+      if (placed.some((o) => box.x0 < o.x1 && o.x0 < box.x1 && box.y0 < o.y1 && o.y0 < box.y1)) continue;
+      placed.push(box);
+      const t = el("text", {
+        x: p.x.toFixed(1),
+        y: p.y.toFixed(1),
+        class: "okvault-section-label",
+        "text-anchor": anchor,
+        "dominant-baseline": "middle",
+      });
+      t.setAttribute("style", `font-size:${nameFont.toFixed(1)}px`);
+      t.textContent = name;
+      gLabels.appendChild(t);
     }
     if (this.focusSection) this.applyFocus(edgeEls, gNodes);
   }
@@ -401,7 +424,7 @@ export class BundleView extends ItemView {
 
   private clearHighlight(edges: { from: string; to: string; el: SVGPathElement }[], gNodes: SVGGElement): void {
     this.tip.hide();
-    this.svg.classList.remove("is-hover");
+    this.svg.classList.remove("is-hover", "is-node-hover");
     if (this.focusSection) {
       this.applyFocus(edges, gNodes);
       return;
@@ -492,8 +515,4 @@ function anchorFor(angle: number): string {
   const s = Math.sin(angle);
   if (Math.abs(s) < 0.15) return "middle";
   return s > 0 ? "start" : "end";
-}
-
-function truncate(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }

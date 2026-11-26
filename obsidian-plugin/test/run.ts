@@ -12,7 +12,7 @@ import { OkvaultClient, parseMessages, type Post } from "../src/client.ts";
 import { OkvaultProcess, checkConfig, checkConnections, lintVault, syncNow, verifyNote } from "../src/server.ts";
 import { fillTemplate, folderFor, kebab, mergeAliases, normalizeKey, notePath, relativeLink, ticketKeyAt, ticketsOf, trustOf } from "../src/noteFacts.ts";
 import { applyTeamConfig, checkTeamConfig, emptyConfig, readTeamConfig, type TeamConfig } from "../src/teamConfig.ts";
-import { buildBundle, catalog, filterNotes } from "../src/bundle.ts";
+import { buildBundle, catalog, filterNotes, labelGeometry, labelRadius, pickLabels, shortTitle } from "../src/bundle.ts";
 import { VaultIgnore, normalizeRoot } from "../src/paths.ts";
 import { DEFAULT_SETTINGS, cleanSetting, rootProblem } from "../src/settingsModel.ts";
 import { readVaultNotes } from "./vault-notes.ts";
@@ -78,6 +78,34 @@ check("angles in (0, 2π) and distinct", angles.every((a) => a > 0 && a < 2 * Ma
   check("review filter combines with hidden sections", filterNotes(fake, { hiddenTypes: new Set(), hiddenSections: new Set(["conventions"]), onlyReasons: new Set(["stale"]) }, rev).length === 0);
   const rc = catalog(fake, rev).reasonCount;
   check("catalog counts review reasons", rc.get("stale") === 1 && rc.get("unverified") === 1 && (rc.get("draft") ?? 0) >= 1 && (rc.get("broken-links") ?? 0) >= 1, JSON.stringify([...rc]));
+}
+
+// ---- bundle map labels: sized for the pane, cut at words, never closer than a line ----
+{
+  check("short titles stay whole", shortTitle("Deployments", 20) === "Deployments");
+  check("titles are cut at a word", shortTitle("Configure a Pod to Use a ConfigMap", 20) === "Configure a Pod to…", shortTitle("Configure a Pod to Use a ConfigMap", 20));
+  check("one long word is cut hard", shortTitle("SelfSubjectAccessReviewSpecification", 14) === "SelfSubjectAc…", shortTitle("SelfSubjectAccessReviewSpecification", 14));
+  const narrow = labelGeometry(260, 300);
+  check("a narrow pane shows titles on hover only", narrow.maxChars === 0);
+  const wide = labelGeometry(260, 750);
+  const reach = labelRadius(260) + wide.maxChars * 0.56 * wide.font;
+  check("labels fit the viewBox", wide.maxChars >= 20 && Math.abs(reach - wide.half) < 1, `${wide.maxChars} chars, ${reach.toFixed(0)} vs ${wide.half.toFixed(0)}`);
+  check("labels read at about 11px", Math.abs((wide.font * 750) / (2 * wide.half) - 11) < 0.01);
+  const all = pickLabels([...b.nodes.values()], 260, wide.font);
+  check("a small vault labels every note", all.size === b.nodes.size, `${all.size}/${b.nodes.size}`);
+  // 1200 notes in 8 sections, a few needing review: only some titles fit.
+  const many = Array.from({ length: 1200 }, (_, i) => ({
+    path: `s${i % 8}/n${i}.md`, title: `Note ${i}`, type: "Reference", broken: i % 97 === 0 ? 1 : 0,
+    links: [`s${(i + 1) % 8}/n${(i + 1) % 1200}.md`, ...(i % 50 === 0 ? Array.from({ length: 20 }, (_, k) => `s${k % 8}/n${(i + k * 7) % 1200}.md`) : [])],
+  }));
+  const big = buildBundle(many, new Map(), 260);
+  const picked = pickLabels([...big.nodes.values()], 260, wide.font);
+  const gap = (wide.font * 1.15) / labelRadius(260);
+  const angles = [...picked].map((p) => big.nodes.get(p)!.angle).sort((x, y) => x - y);
+  const minD = Math.min(...angles.map((a, i) => (i ? a - angles[i - 1] : a + 2 * Math.PI - angles[angles.length - 1])));
+  check("a big vault labels some notes, a line apart", picked.size > 30 && picked.size < 200 && minD >= gap - 1e-9, `${picked.size} labels, min gap ${minD.toFixed(4)} vs ${gap.toFixed(4)}`);
+  const broken = [...big.nodes.values()].filter((n) => n.reasons.has("broken-links"));
+  check("notes needing review are labelled first", broken.every((n) => picked.has(n.path)), `${broken.filter((n) => picked.has(n.path)).length}/${broken.length}`);
 }
 
 // ---- plugin settings form ----
