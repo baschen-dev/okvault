@@ -716,7 +716,7 @@ func verify(args []string, w io.Writer) error {
 	by := fs.String("by", "", "who checked the notes (default: git config user.name)")
 	_ = fs.Parse(args)
 	if fs.NArg() == 0 {
-		return fmt.Errorf("usage: okvault verify [--by NAME] PATH...")
+		return errors.New("usage: okvault verify [--vault DIR] [--by NAME] PATH [PATH ...]")
 	}
 	name := strings.TrimSpace(*by)
 	if name == "" {
