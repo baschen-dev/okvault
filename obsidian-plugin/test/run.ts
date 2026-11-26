@@ -192,6 +192,8 @@ try {
     check("kb_list returns this vault's paths", paths.includes("faq/how-do-i-add-an-faq.md"), `${paths.length}`);
     const r = await c.review(200);
     check("kb_review returns items array", Array.isArray(r.items) && typeof r.total === "number", `total ${r.total}`);
+    const rs = await c.rescan();
+    check("kb_review rescan re-reads the vault", rs.total === r.total && rs.items.length <= 1, `total ${rs.total} vs ${r.total}`);
 
     // A server restart invalidates the session; the client must re-initialize.
     (c as unknown as { session: string }).session = "STALE-SESSION";

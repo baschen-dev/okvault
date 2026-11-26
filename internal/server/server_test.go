@@ -128,3 +128,26 @@ func TestReadOnlyHidesWrite(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewRescan(t *testing.T) {
+	cs, v := connect(t, true)
+	// A change the watcher never saw: there is no watcher in this test.
+	if err := os.WriteFile(filepath.Join(v.Root, "faq", "broken.md"),
+		[]byte("---\ntype: FAQ\ntitle: Broken\n---\nSee [gone](gone.md).\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out ReviewOut
+	call(t, cs, "kb_review", map[string]any{"reason": "broken-links"}, &out)
+	if out.Total != 0 {
+		t.Fatalf("before rescan = %+v", out)
+	}
+	call(t, cs, "kb_review", map[string]any{"reason": "broken-links", "rescan": true}, &out)
+	if out.Total != 1 || out.Items[0].Path != "faq/broken.md" {
+		t.Fatalf("after rescan = %+v", out)
+	}
+	var so SearchOut
+	call(t, cs, "kb_search", map[string]any{"query": "broken"}, &so)
+	if len(so.Hits) == 0 || so.Hits[0].Path != "faq/broken.md" {
+		t.Fatalf("search after rescan = %+v", so)
+	}
+}

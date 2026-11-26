@@ -219,6 +219,11 @@ export class OkvaultClient {
     return this.call<Review>("kb_review", { limit });
   }
 
+  /** kb_review with rescan: okvault re-reads the vault from disk (links, owners, review dates, search index) first. */
+  async rescan(limit = 1): Promise<Review> {
+    return this.call<Review>("kb_review", { limit, rescan: true });
+  }
+
   /** True when the server answers initialize. */
   async ping(): Promise<boolean> {
     try {

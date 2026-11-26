@@ -96,6 +96,17 @@ func (s *Server) Refresh(snap *vault.Snapshot) {
 	}
 }
 
+// rescan re-reads the vault from disk and rebuilds the search index, for when
+// the file watcher missed a change (a git checkout, a network drive, a sync tool).
+func (s *Server) rescan() (*vault.Snapshot, error) {
+	snap, err := s.v.Reload()
+	if err != nil {
+		return nil, err
+	}
+	s.Refresh(snap)
+	return snap, nil
+}
+
 var ro = &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(bool)}
 
 // roOpen is for read-only tools that reach the issue tracker.
@@ -175,6 +186,7 @@ type ReviewIn struct {
 	Owner  string `json:"owner,omitempty" jsonschema:"only notes owned by this person or group"`
 	Reason string `json:"reason,omitempty" jsonschema:"only one reason: stale, unverified, draft, broken-links or no-owner"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"max items (default 25, max 200)"`
+	Rescan bool   `json:"rescan,omitempty" jsonschema:"re-read the whole vault from disk first (links, owners, review dates, search index); for when files changed without the watcher noticing"`
 }
 
 type ReviewOut struct {
@@ -315,10 +327,17 @@ func (s *Server) register() {
 	mcp.AddTool(s.MCP, &mcp.Tool{
 		Name:        "kb_review",
 		Title:       "Notes needing review",
-		Description: "The team's maintenance queue: notes that are stale (stale_after passed), written by an agent and not verified by a person since, drafts, with broken links, or without an owner. Filter by owner or reason.",
+		Description: "The team's maintenance queue: notes that are stale (stale_after passed), written by an agent and not verified by a person since, drafts, with broken links, or without an owner. Filter by owner or reason. rescan re-reads the vault from disk first.",
 		Annotations: ro,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ReviewIn) (*mcp.CallToolResult, ReviewOut, error) {
-		items := s.v.Snapshot().Review(vault.ReviewQuery{Owner: in.Owner, Reason: in.Reason}, time.Now())
+		snap := s.v.Snapshot()
+		if in.Rescan {
+			var err error
+			if snap, err = s.rescan(); err != nil {
+				return nil, ReviewOut{}, err
+			}
+		}
+		items := snap.Review(vault.ReviewQuery{Owner: in.Owner, Reason: in.Reason}, time.Now())
 		out := ReviewOut{Total: len(items), Items: items, Git: s.gitStatus()}
 		limit := in.Limit
 		if limit <= 0 {

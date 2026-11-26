@@ -66,6 +66,7 @@ export default class OkvaultPlugin extends Plugin {
     running: false,
   };
   private lintAgain = false;
+  private rescanning = false;
   /** Rules from the okvault root's .vaultignore; ignored files are left out of every view. */
   ignore = new VaultIgnore();
   private ignoreText = "";
@@ -148,6 +149,11 @@ export default class OkvaultPlugin extends Plugin {
         if (!checking) void this.verify(p);
         return true;
       },
+    });
+    this.addCommand({
+      id: "rescan",
+      name: "Rescan the vault (broken links, review status, search index)",
+      callback: () => this.rescan(),
     });
     this.addCommand({
       id: "reconnect",
@@ -392,6 +398,36 @@ export default class OkvaultPlugin extends Plugin {
       this.syncing = false;
       await this.refreshGit();
       this.refreshTeamView();
+    }
+  }
+
+  /**
+   * Has okvault re-read the whole vault from disk, for when its file watcher
+   * missed a change, then re-runs lint and redraws every view.
+   */
+  async rescan(): Promise<boolean> {
+    if (this.rescanning) return false;
+    this.rescanning = true;
+    try {
+      if (!(await this.ensureConnected())) {
+        new Notice(`okvault: cannot rescan, the server is not reachable: ${this.lastError}`);
+        return false;
+      }
+      try {
+        const r = await this.client.rescan();
+        this.setGit(r.git ?? null);
+        new Notice(`okvault: vault rescanned, ${r.total} ${r.total === 1 ? "note needs" : "notes need"} review`);
+      } catch (e) {
+        this.markDisconnected((e as Error).message);
+        new Notice(`okvault: rescan failed: ${(e as Error).message}`);
+        return false;
+      }
+      await this.loadIgnore();
+      this.requestLint();
+      this.refreshViews();
+      return true;
+    } finally {
+      this.rescanning = false;
     }
   }
 
