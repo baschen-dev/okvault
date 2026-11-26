@@ -54,7 +54,7 @@ Search and FAQ answers come from okvault itself, over MCP (`okvault serve --port
 
 ## Install
 
-**From Obsidian.** In Obsidian go to *Settings → Community plugins → Browse*, search for **okvault**, then install and enable it. It needs the `okvault` binary (see [The okvault server](#the-okvault-server)). The plugin is also listed in the [community directory](https://community.obsidian.md/plugins/okvault).
+**From Obsidian.** In Obsidian go to *Settings → Community plugins → Browse*, search for **okvault**, then install and enable it. It needs the okvault program: download it for your system from the newest *okvault vX.Y.Z (program)* release on the [releases page](https://github.com/baschen-dev/okvault/releases), or `go install` it (see [The okvault server](#the-okvault-server)). The plugin is also listed in the [community directory](https://community.obsidian.md/plugins/okvault).
 
 **From a release.** Each [GitHub release](https://github.com/baschen-dev/okvault/releases) carries `main.js`, `manifest.json` and `styles.css`. Put the three files in `<vault>/.obsidian/plugins/okvault/`, or install with [BRAT](https://github.com/TfTHacker/obsidian42-brat) (*Add beta plugin*, `baschen-dev/okvault`), which also updates it.
 
@@ -83,7 +83,7 @@ Release assets carry GitHub build provenance attestations: `gh attestation verif
 
 The plugin talks to `http://127.0.0.1:8766/mcp` by default. That is deliberately not okvault's own `--http` port (8765), so a server the plugin starts never takes the port you registered with Claude Code.
 
-- **Automatic (default).** If nothing answers there, the plugin runs `okvault serve --vault <this vault> --port 8766` and stops it when Obsidian closes. `okvault` must be on your `PATH` (`go install` puts it in `$GOPATH/bin`), or set its full path in the plugin settings. It needs a build with `--port` (okvault after the HTTP transport landed).
+- **Automatic (default).** If nothing answers there, the plugin runs `okvault serve --vault <this vault> --port 8766` and stops it when Obsidian closes. `okvault` must be on your `PATH` (`go install` puts it in `$GOPATH/bin`), or set its full path in the plugin settings, for example where you unpacked the downloaded program. It needs a build with `--port` (okvault after the HTTP transport landed).
 - **Versioning** (setting, default *Follow .okvault.yaml*). The server follows the team's `git` settings: it keeps `index.md` files current as you edit, commits your edits after `commit_edits` of quiet, and rebases, pushes and opens the pull request in push and pr mode. With git off in `.okvault.yaml` it commits nothing. *Off* starts it `--read-only --git off` instead.
 - **Your own server.** Point *Server URL* at a server you run, for example the one Claude Code uses (`http://127.0.0.1:8765/mcp`). The plugin connects to it and does not start another. Writes and git sync then follow that server's flags.
 
@@ -125,7 +125,7 @@ CI builds and tests the plugin on every pull request; the build is attached to t
 1. `just plugin-version 0.4.2` (or `just win::plugin-version 0.4.2`) sets the version in `manifest.json`, `package.json` and `package-lock.json`, copies `manifest.json` to the repository root, and adds the version to the root `versions.json` with the plugin's `minAppVersion`. Merge that change.
 2. Tag `main` with the same version: `git tag v0.4.2 && git push origin v0.4.2`. Don't create the release yourself.
 
-The `release` workflow checks that the tag matches both manifests, runs the tests, builds, and publishes the release with generated notes under the bare version tag (`0.4.2`) on the same commit. That is the one release per version: Obsidian's directory only installs from a release tagged exactly with the manifest version, while `v0.4.2` stays a plain git tag for Go (`go install …@v0.4.2`, `git describe`). Re-running the workflow replaces the release's assets.
+The `release` workflow checks that the tag matches both manifests, runs the tests, builds, and publishes the release with generated notes under the bare version tag (`0.4.2`) on the same commit. Obsidian's directory only installs from a release tagged exactly with the manifest version, and flags release files it doesn't install, so that release carries only the plugin's three files. A second job then builds the okvault program for Windows, macOS and Linux (amd64 and arm64), attests the archives, and publishes them with a checksums file as a release of their own under `v0.4.2`, the Go tag (`go install …@v0.4.2`, `git describe`). That release is not marked latest, so the plugin release stays the one GitHub and BRAT show first. Re-running the workflow replaces both releases' assets.
 
 ### Community plugin directory
 
