@@ -54,10 +54,10 @@ An existing Obsidian vault works too: notes without frontmatter are loaded as un
 | Tool | What it does |
 |---|---|
 | `kb_ask` | Answers a natural-language question from FAQ notes. Returns `confident`, `answer` and `matched_question`, or related hits if no FAQ matches well enough. |
-| `kb_search` | BM25 search over title, aliases, description, tags and body, with `type`, `tags`, `dir`, `ticket` and `owner` filters. A ticket key in the query matches exactly. Returns compact hits. |
+| `kb_search` | BM25 search over title, aliases, description, tags and body, with `type`, `tags`, `dir`, `ticket` and `owner` filters. A ticket key in the query matches exactly. Notes that other notes link to, and notes one link from a ticket in the query, rank a little higher ([Search ranking](../vault/reference/search-ranking.md)). Returns compact hits. |
 | `kb_get` | Reads one note: frontmatter, body, links, backlinks, broken links, tickets, owners and its `revision`. Accepts a path or a title. |
 | `kb_list` | Counts notes per type, tag and folder, and lists the notes that match the filters. |
-| `kb_ticket` | Context for a ticket key: the ticket from Jira (when configured), notes linked to it or mentioning it, and notes matching its summary. Works without Jira credentials, from the vault alone. |
+| `kb_ticket` | Context for a ticket key: the ticket from Jira (when configured), notes linked to it or mentioning it, and notes matching its summary (notes one link from the ticket's notes rank higher). Works without Jira credentials, from the vault alone. |
 | `kb_tickets` | The team's ticket filters (`tracker.filters`, by default *My tickets* and *Missing docs*) and, with `filter`, that filter's tickets from Jira, each with how many notes document it. |
 | `kb_review` | Notes that need a person: stale, unverified agent edits, drafts, broken links, no owner. Filter by owner or reason. `rescan: true` re-reads the vault from disk first, for changes the file watcher missed. |
 | `kb_gaps` | Knowledge gaps: questions `kb_ask` could not answer confidently, grouped with their other phrasings, most asked first, with the nearest FAQ and the notes agents read instead. Groups an FAQ answers now drop out; `dismiss` hides one. |

@@ -573,7 +573,7 @@ func (s *Server) ticket(ctx context.Context, key string) (*mcp.CallToolResult, *
 			out.URL = is.URL
 		}
 		q := strings.TrimSpace(is.Summary + " " + strings.Join(is.Labels, " "))
-		if hits, err := s.ix.Search(search.Query{Text: q, Limit: 8}); err == nil {
+		if hits, err := s.ix.Search(search.Query{Text: q, Limit: 8, NearTickets: []string{k}}); err == nil {
 			for _, h := range hits {
 				if !listed[h.Path] && len(out.Suggested) < 5 {
 					out.Suggested = append(out.Suggested, h)
