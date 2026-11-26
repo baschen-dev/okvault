@@ -12,7 +12,7 @@ Open an [issue](https://github.com/baschen-dev/okvault/issues) and include:
 
 Never paste tokens. okvault and the plugin read Jira and GitHub credentials from the environment, and their output names where a credential came from, never its value.
 
-For a security problem, don't open a public issue: contact the maintainer privately through their [GitHub profile](https://github.com/abaschen) first.
+For a security problem, don't open a public issue: use [*Report a vulnerability*](https://github.com/baschen-dev/okvault/security/advisories/new) on the repository's Security tab, which reaches the maintainers privately.
 
 ## Setting up
 
