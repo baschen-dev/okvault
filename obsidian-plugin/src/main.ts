@@ -4,6 +4,7 @@ import { NoteInput } from "./bundle";
 import { BUNDLE_VIEW, BundleView } from "./bundleView";
 import { FAQ_VIEW, FaqView } from "./faqView";
 import { Finding, OkvaultProcess, lintVault, syncNow, verifyNote } from "./server";
+import { versionProblem } from "./version";
 import { INSPECTOR_VIEW, InspectorView } from "./inspectorView";
 import { TICKET_VIEW, TicketView } from "./ticketView";
 import { GAPS_VIEW, GapsView } from "./gapsView";
@@ -58,6 +59,9 @@ export default class OkvaultPlugin extends Plugin {
   teamGit: TeamGit = { mode: "off" };
   syncing = false;
   private lastProblem = "";
+  /** Why the connected okvault is too old for this plugin ("" when it is not). */
+  versionWarning = "";
+  private warnedVersion = "";
   /** Ticket project keys from .okvault.yaml (tracker.projects); empty: keys are not linked in notes. */
   ticketProjects: string[] = [];
   /** okvault lint results for the whole vault, by note path. */
@@ -318,7 +322,20 @@ export default class OkvaultPlugin extends Plugin {
       this.lastError = (e as Error).message;
       return this.setState("offline");
     }
+    this.checkVersion();
     return this.setState("connected");
+  }
+
+  /** Warns, once per okvault version, when the server is older than this plugin. */
+  private checkVersion(): void {
+    const server = this.client.serverVersion;
+    this.versionWarning = versionProblem(server, this.manifest.version);
+    if (!this.versionWarning || this.warnedVersion === server) return;
+    this.warnedVersion = server;
+    const how = this.proc.running
+      ? ` This plugin started it from "${this.settings.binaryPath}": replace that program (or point the "okvault binary" setting at a newer one), then restart Obsidian.`
+      : " Update the okvault that serves this vault, then restart it.";
+    new Notice(`${this.versionWarning}${how} Downloads: https://github.com/baschen-dev/okvault/releases`, 20_000);
   }
 
   // ---- versioning and collaboration (okvault's git sync) ----
@@ -481,7 +498,7 @@ export default class OkvaultPlugin extends Plugin {
   statusText(): string {
     switch (this.state) {
       case "connected":
-        return `Connected to okvault ${this.client.serverVersion} at ${this.settings.serverUrl}${this.proc.running ? " (started by this plugin)" : ""}.`;
+        return `Connected to okvault ${this.client.serverVersion} at ${this.settings.serverUrl}${this.proc.running ? " (started by this plugin)" : ""}.${this.versionWarning ? ` ⚠ ${this.versionWarning}` : ""}`;
       case "starting":
         return "Starting okvault…";
       case "offline":
@@ -500,10 +517,11 @@ export default class OkvaultPlugin extends Plugin {
       if (g.unpushed) label += ` ↑${g.unpushed}`;
       if (g.problem) label += " ⚠";
     }
+    if (this.state === "connected" && this.versionWarning && !g?.problem) label += " ⚠";
     this.statusBar.setText(label);
     this.statusBar.setAttr("aria-label", this.statusText() + (g?.problem ? `\nSync problem: ${g.problem}` : ""));
     this.statusBar.toggleClass("is-offline", this.state === "offline");
-    this.statusBar.toggleClass("has-problem", !!g?.problem);
+    this.statusBar.toggleClass("has-problem", !!g?.problem || (this.state === "connected" && !!this.versionWarning));
   }
 
   // ---- paths: okvault paths are relative to the okvault root ----

@@ -58,6 +58,8 @@ Search and FAQ answers come from okvault itself, over MCP (`okvault serve --port
 
 **From a release.** Each [GitHub release](https://github.com/baschen-dev/okvault/releases) carries `main.js`, `manifest.json` and `styles.css`. Put the three files in `<vault>/.obsidian/plugins/okvault/`, or install with [BRAT](https://github.com/TfTHacker/obsidian42-brat) (*Add beta plugin*, `baschen-dev/okvault`), which also updates it.
 
+**Keep the program up to date.** The plugin and the okvault program are released together. When the plugin connects to an okvault older than itself, it says so in a notice, in the status bar (`okvault ● ⚠`) and under *Connection* in its settings, because some actions may fail with an old program. Replace the okvault binary with the matching release, then restart Obsidian. A local build that has no version (`dev-<commit>`) is not checked.
+
 **From source.** From the repository root:
 
 ```sh
