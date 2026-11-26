@@ -18,7 +18,7 @@ const app = {
 };
 const plugin: any = {
   client: new OkvaultClient("/mcp", fetchPost),
-  settings: { serverUrl: "/mcp", graphHiddenTypes: [], graphHiddenSections: [] },
+  settings: { serverUrl: "/mcp", graphHiddenTypes: [], graphHiddenSections: [], graphOnlyReasons: [] },
   saveSettings: async () => {},
   loadIgnore: async () => false,
   lastError: "",

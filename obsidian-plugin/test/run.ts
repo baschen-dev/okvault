@@ -54,14 +54,30 @@ check("angles in (0, 2π) and distinct", angles.every((a) => a > 0 && a < 2 * Ma
 {
   const cat = catalog(notes);
   check("catalog counts every concept", cat.total === b.nodes.size, `${cat.total} vs ${b.nodes.size}`);
-  const noFaq = buildBundle(filterNotes(notes, { hiddenTypes: new Set(["FAQ"]), hiddenSections: new Set() }), new Map());
+  const noFaq = buildBundle(filterNotes(notes, { hiddenTypes: new Set(["FAQ"]), hiddenSections: new Set(), onlyReasons: new Set() }), new Map());
   check("hidden type leaves the layout", ![...noFaq.nodes.values()].some((n) => n.type === "FAQ") && noFaq.nodes.size === b.nodes.size - (cat.typeCount.get("FAQ") ?? 0));
   check("hidden type's links go too", noFaq.edges.every((e) => noFaq.nodes.has(e.from) && noFaq.nodes.has(e.to)));
   const angles2 = [...noFaq.nodes.values()].map((n) => n.angle).sort((x, y) => x - y);
   check("remaining notes take the whole circle", angles2.length > 0 && angles2[angles2.length - 1] - angles2[0] > Math.PI);
-  const noSec = buildBundle(filterNotes(notes, { hiddenTypes: new Set(), hiddenSections: new Set(["faq"]) }), new Map());
+  const noSec = buildBundle(filterNotes(notes, { hiddenTypes: new Set(), hiddenSections: new Set(["faq"]), onlyReasons: new Set() }), new Map());
   check("hidden section has no arc", !noSec.sections.some((s) => s.name === "faq") && noSec.sections.length === b.sections.length - 1);
   check("hidden section's notes gone", ![...noSec.nodes.keys()].some((p) => p.startsWith("faq/")));
+  // Review filters narrow the map to notes with one of the picked reasons.
+  const rev = new Map([["faq/how-do-i-add-an-faq.md", ["unverified"]], ["conventions/x.md", ["stale"]]]);
+  const fake = [
+    ...notes,
+    { path: "conventions/x.md", title: "X", type: "Reference", links: [], broken: 0 },
+    { path: "conventions/y.md", title: "Y", type: "Reference", links: [], broken: 2, status: "draft" },
+  ];
+  const none = { hiddenTypes: new Set<string>(), hiddenSections: new Set<string>() };
+  const only = (...rs: string[]) => filterNotes(fake, { ...none, onlyReasons: new Set(rs) }, rev).map((n) => n.path).sort().join(",");
+  check("no review filter keeps every concept", filterNotes(fake, { ...none, onlyReasons: new Set() }, rev).length === catalog(fake).total);
+  check("only stale", only("stale") === "conventions/x.md", only("stale"));
+  check("only broken links (local)", only("broken-links").split(",").includes("conventions/y.md") && !only("broken-links").includes("conventions/x.md"));
+  check("review reasons are ORed", only("stale", "unverified") === "conventions/x.md,faq/how-do-i-add-an-faq.md", only("stale", "unverified"));
+  check("review filter combines with hidden sections", filterNotes(fake, { hiddenTypes: new Set(), hiddenSections: new Set(["conventions"]), onlyReasons: new Set(["stale"]) }, rev).length === 0);
+  const rc = catalog(fake, rev).reasonCount;
+  check("catalog counts review reasons", rc.get("stale") === 1 && rc.get("unverified") === 1 && (rc.get("draft") ?? 0) >= 1 && (rc.get("broken-links") ?? 0) >= 1, JSON.stringify([...rc]));
 }
 
 // ---- plugin settings form ----

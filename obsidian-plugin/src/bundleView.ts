@@ -22,7 +22,7 @@ export class BundleView extends ItemView {
   private bundle: Bundle | null = null;
   private reasons = new Map<string, string[]>();
   private reviewSource: "server" | "local" = "local";
-  private catalog: Catalog = { types: [], typeCount: new Map(), sections: [], total: 0 };
+  private catalog: Catalog = { types: [], typeCount: new Map(), sections: [], reasonCount: new Map(), total: 0 };
   private focusSection: string | null = null;
   private svg!: SVGSVGElement;
   private tip!: HTMLElement;
@@ -105,12 +105,14 @@ export class BundleView extends ItemView {
     return {
       hiddenTypes: new Set(this.plugin.settings.graphHiddenTypes),
       hiddenSections: new Set(this.plugin.settings.graphHiddenSections),
+      onlyReasons: new Set(this.plugin.settings.graphOnlyReasons ?? []),
     };
   }
 
   private async setFilter(f: GraphFilter): Promise<void> {
     this.plugin.settings.graphHiddenTypes = [...f.hiddenTypes].sort();
     this.plugin.settings.graphHiddenSections = [...f.hiddenSections].sort();
+    this.plugin.settings.graphOnlyReasons = [...f.onlyReasons].sort();
     this.render();
     await this.plugin.saveSettings();
   }
@@ -119,17 +121,18 @@ export class BundleView extends ItemView {
   private activeFilters(f: GraphFilter): number {
     return (
       this.catalog.types.filter((t) => f.hiddenTypes.has(t)).length +
-      this.catalog.sections.filter((s) => f.hiddenSections.has(s.name)).length
+      this.catalog.sections.filter((s) => f.hiddenSections.has(s.name)).length +
+      f.onlyReasons.size
     );
   }
 
   private render(): void {
     const all = this.plugin.localNotes();
-    const cat = catalog(all);
+    const cat = catalog(all, this.reasons);
     this.catalog = cat;
     const filter = this.filter();
     // Filtered notes are left out of the layout: no slot, no arc, no links, no row.
-    const b = buildBundle(filterNotes(all, filter), this.reasons, RADIUS);
+    const b = buildBundle(filterNotes(all, filter, this.reasons), this.reasons, RADIUS);
     this.bundle = b;
     // Colours come from the whole vault, so hiding a type never repaints the others.
     this.slot.clear();
@@ -211,22 +214,31 @@ export class BundleView extends ItemView {
       }
     }
 
+    // Review reasons narrow the map instead: pick one or more to see only those notes.
+    const review = row("Review");
+    for (const r of REASONS) {
+      const count = cat.reasonCount.get(r.key) ?? 0;
+      const on = f.onlyReasons.has(r.key);
+      if (!count && !on) continue;
+      const c = review.createEl("button", {
+        cls: `okvault-chip okvault-chip-only ${on ? "is-selected" : ""}`,
+        attr: { "aria-pressed": String(on), title: on ? "Stop narrowing to these notes" : "Show only notes that need review for this" },
+      });
+      c.createSpan({ cls: `okvault-ring-swatch okvault-r-${r.cls}` });
+      c.createSpan({ text: `${r.glyph} ${r.label} ${count}` });
+      c.addEventListener("click", () => {
+        on ? f.onlyReasons.delete(r.key) : f.onlyReasons.add(r.key);
+        void this.setFilter(f);
+      });
+    }
+    if (!review.querySelector("button")) review.createSpan({ cls: "okvault-muted", text: "Nothing needs review" });
+    else if (!f.onlyReasons.size) review.createSpan({ cls: "okvault-muted okvault-filter-hint", text: "Ring on a note = needs review. Click to show only those notes." });
+
     const active = this.activeFilters(f);
     if (active) {
-      const reset = el.createEl("button", { cls: "okvault-filter-reset", text: `Show all (${active} hidden)` });
-      reset.addEventListener("click", () => void this.setFilter({ hiddenTypes: new Set(), hiddenSections: new Set() }));
+      const reset = el.createEl("button", { cls: "okvault-filter-reset", text: `Show all (${active} filter${active === 1 ? "" : "s"})` });
+      reset.addEventListener("click", () => void this.setFilter({ hiddenTypes: new Set(), hiddenSections: new Set(), onlyReasons: new Set() }));
     }
-
-    const key = el.createDiv({ cls: "okvault-legend-review" });
-    key.createSpan({ cls: "okvault-muted", text: "Ring = needs review:" });
-    for (const r of REASONS.slice(0, 3)) {
-      const k = key.createSpan({ cls: "okvault-review-key" });
-      k.createSpan({ cls: `okvault-ring-swatch okvault-r-${r.cls}` });
-      k.createSpan({ text: `${r.glyph} ${r.label}` });
-    }
-    const k = key.createSpan({ cls: "okvault-review-key" });
-    k.createSpan({ cls: "okvault-ring-swatch okvault-r-muted" });
-    k.createSpan({ text: "✎ Draft / 👤 no owner" });
   }
 
   private renderChart(b: Bundle): void {
@@ -235,7 +247,7 @@ export class BundleView extends ItemView {
     if (!b.nodes.size) {
       const t = el("text", { x: 0, y: 0, "text-anchor": "middle", class: "okvault-empty-text" });
       t.textContent = this.catalog.total
-        ? "Every note is filtered out. Turn a type or section back on above."
+        ? "No note matches the filters. Turn a type, section or review filter off above."
         : "No OKF notes found. Check the okvault root setting and .vaultignore.";
       svg.appendChild(t);
       return;
