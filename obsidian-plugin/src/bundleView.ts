@@ -57,11 +57,19 @@ export class BundleView extends ItemView {
 
     const bar = root.createDiv({ cls: "okvault-toolbar" });
     this.infoEl = bar.createDiv({ cls: "okvault-info" });
-    const btn = bar.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Refresh (re-read .vaultignore and the review status from okvault)" } });
+    const btn = bar.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Rescan the vault (okvault re-reads every note: broken links, review status, .vaultignore)" } });
     setIcon(btn, "refresh-cw");
     btn.addEventListener("click", async () => {
-      await this.plugin.loadIgnore();
-      await this.reload();
+      btn.disabled = true;
+      try {
+        // Offline, rescan does nothing: still redraw from Obsidian's own cache.
+        if (!(await this.plugin.rescan())) {
+          await this.plugin.loadIgnore();
+          await this.reload();
+        }
+      } finally {
+        btn.disabled = false;
+      }
     });
 
     this.legendEl = root.createDiv({ cls: "okvault-legend" });

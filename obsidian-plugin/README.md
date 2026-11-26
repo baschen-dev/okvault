@@ -91,6 +91,8 @@ After connecting, the plugin checks that the server serves this vault; if none o
 
 **`.vaultignore`** at the okvault root lists files the server does not index (see [Vault layout](../README.md#vault-layout)). The plugin applies the same rules, so ignored notes are missing from the bundle map, the FAQ and the inspector as well. Obsidian sends no events for dotfiles, so the plugin reads the file again every 30 seconds, and also when you press refresh on the bundle map.
 
+**Rescan.** The server re-reads the vault when its file watcher sees a change, which can miss edits (a git checkout, a network drive, a sync tool). The refresh button on the bundle map and on the review queue, and the command **okvault: Rescan the vault**, make it re-read every note now: broken links, review status and the search index. The plugin then re-runs lint and redraws its views.
+
 ## Obsidian Git
 
 Let one tool write to git. In an okvault vault that tool is okvault; keep Obsidian Git for history and diffs. We ran Obsidian Git's commit-and-sync (stage, commit, fetch, merge, push) in a loop next to `okvault serve`, with a teammate pushing to `main`. No edits were lost, but:

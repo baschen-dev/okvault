@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
+import { ItemView, WorkspaceLeaf, setIcon } from "obsidian";
 import type { ReviewItem } from "./client";
 import type OkvaultPlugin from "./main";
 
@@ -147,8 +147,19 @@ export class TeamView extends ItemView {
   }
 
   private renderReview(el: HTMLElement): void {
-    const head = el.createDiv({ cls: "okvault-section-title", text: `Needs a person (${this.total})` });
-    head.setAttr("title", "kb_review: stale, agent edits nobody checked yet, drafts, broken links, no owner");
+    const head = el.createDiv({ cls: "okvault-section-title okvault-section-head" });
+    const label = head.createSpan({ text: `Needs a person (${this.total})` });
+    label.setAttr("title", "kb_review: stale, agent edits nobody checked yet, drafts, broken links, no owner");
+    const rescan = head.createEl("button", {
+      cls: "clickable-icon",
+      attr: { "aria-label": "Rescan the vault (okvault re-reads every note: broken links, review status)" },
+    });
+    setIcon(rescan, "refresh-cw");
+    rescan.addEventListener("click", async () => {
+      rescan.disabled = true;
+      await this.plugin.rescan();
+      rescan.disabled = false;
+    });
     if (this.reviewError) {
       el.createDiv({ cls: "okvault-muted", text: this.reviewError });
       return;
