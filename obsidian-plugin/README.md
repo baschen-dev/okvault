@@ -37,7 +37,7 @@ An Obsidian plugin that shows the vault the way okvault's agents see it.
   - **Add as aliases** fixes a near miss: an FAQ that came close (50% or more) and probably answers the question already.
   - **Dismiss** hides a question the vault should not answer.
 
-  Gaps an FAQ now answers drop out on their own. The questions are recorded per machine by okvault, outside the vault (see the main README). Your own searches in the FAQ panel are not counted. Agents' okvault must be recent enough to record gaps.
+  Gaps an FAQ now answers drop out on their own. The questions are recorded per machine by okvault, outside the vault (see [Knowledge gaps](../docs/server.md#knowledge-gaps)). Your own searches in the FAQ panel are not counted. Agents' okvault must be recent enough to record gaps.
 - **Connections (this machine)** (*Settings → okvault → Team settings and connections*; before Obsidian 1.13, on *Settings → okvault* itself). **Check connections** runs `okvault connections`. The plugin stores no tokens: okvault finds them as it always does, and the check shows where they came from, never their values.
   - **Jira** (`JIRA_API_TOKEN`, plus `JIRA_EMAIL` on Jira Cloud): who you are signed in as, and the projects you can see as a checklist with a filter. **Use for this vault** puts the site and the selected projects into Team settings below, where you review them and press Save. Selected keys Jira no longer returns stay selected and are marked.
   - **GitHub and git:** the repository, the API token source (`GH_TOKEN`, `GITHUB_TOKEN` or `gh auth login`), whether you can push, and a `git push --dry-run` that tests git's credential manager or SSH key without sending anything.
@@ -91,7 +91,7 @@ After connecting, the plugin checks that the server serves this vault; if none o
 
 **okvault root** (setting) is the okvault folder, always relative to the Obsidian vault. Empty, `.` and `/` all mean the vault itself, which is the default. `./docs/kb/` and `docs\kb` both mean `docs/kb`. A path that leaves the vault (`..`) is refused. Notes outside the root are left out of every view, and the root's `.okvault.yaml` and `.vaultignore` are the ones used.
 
-**`.vaultignore`** at the okvault root lists files the server does not index (see [Vault layout](../README.md#vault-layout)). The plugin applies the same rules, so ignored notes are missing from the bundle map, the FAQ and the inspector as well. Obsidian sends no events for dotfiles, so the plugin reads the file again every 30 seconds, and also when you press refresh on the bundle map.
+**`.vaultignore`** at the okvault root lists files the server does not index (see [Vault layout](../docs/server.md#vault-layout)). The plugin applies the same rules, so ignored notes are missing from the bundle map, the FAQ and the inspector as well. Obsidian sends no events for dotfiles, so the plugin reads the file again every 30 seconds, and also when you press refresh on the bundle map.
 
 **Rescan.** The server re-reads the vault when its file watcher sees a change, which can miss edits (a git checkout, a network drive, a sync tool). The refresh button on the bundle map and on the review queue, and the command **okvault: Rescan the vault**, make it re-read every note now: broken links, review status and the search index. The plugin then re-runs lint and redraws its views.
 
