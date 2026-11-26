@@ -17,7 +17,16 @@ import (
 const (
 	lockWait  = 45 * time.Second // longest a write waits for another okvault
 	lockStale = 3 * time.Minute  // a lock this old was left by a crashed process
+	// On Windows, creating a file another process is deleting fails with "Access
+	// is denied" until the delete completes: the lock is being released, so wait.
+	// A permission error that outlasts this is real (a read-only .git).
+	lockDenied = 2 * time.Second
 )
+
+// openLock creates the lock file, failing if it exists (a variable for tests).
+var openLock = func(p string) (*os.File, error) {
+	return os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+}
 
 // gitPath resolves a path inside the repository's git directory.
 func (r *repo) gitPath(name string) string {
@@ -40,8 +49,9 @@ func (s *Syncer) lockGit() (func(), error) {
 		return nil, errors.New("gitsync: cannot find the git directory")
 	}
 	deadline := time.Now().Add(lockWait)
+	var deniedSince time.Time
 	for wait := 20 * time.Millisecond; ; wait = min(wait*2, 500*time.Millisecond) {
-		f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		f, err := openLock(p)
 		if err == nil {
 			fmt.Fprintf(f, "%d\n", os.Getpid())
 			f.Close()
@@ -50,6 +60,18 @@ func (s *Syncer) lockGit() (func(), error) {
 				s.gmu.Unlock()
 			}, nil
 		}
+		if errors.Is(err, os.ErrPermission) {
+			if deniedSince.IsZero() {
+				deniedSince = time.Now()
+			}
+			if time.Since(deniedSince) > lockDenied {
+				s.gmu.Unlock()
+				return nil, fmt.Errorf("gitsync: lock %s: %w", p, err)
+			}
+			time.Sleep(min(wait, 50*time.Millisecond))
+			continue
+		}
+		deniedSince = time.Time{}
 		if !errors.Is(err, os.ErrExist) {
 			s.gmu.Unlock()
 			return nil, fmt.Errorf("gitsync: lock %s: %w", p, err)

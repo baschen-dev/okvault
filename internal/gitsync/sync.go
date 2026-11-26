@@ -272,12 +272,47 @@ func (s *Syncer) locked(fn func(vault.Locked) error) error {
 	})
 }
 
+// fetchLockWait is how long a fetch waits for another git process (usually
+// another okvault on the same checkout, fetching too) to release a ref.
+var fetchLockWait = 3 * time.Second
+
+// fetch runs without the git lock, so kb_write never waits on the network.
+// Two okvault processes on one checkout can then fetch at once, and git lets
+// only one of them update a remote-tracking ref: the other fails with "cannot
+// lock ref". By then the winner has fetched the same refs, so the loser retries
+// for a moment instead of reporting the remote as unreachable.
 func (s *Syncer) fetch(ctx context.Context) error {
 	remote := s.o.Config().Remote
-	if _, err := s.r.run(ctx, "fetch", "-q", "--prune", remote); err != nil {
-		return fmt.Errorf("fetch from %s failed (offline?): %w", remote, err)
+	deadline := time.Now().Add(fetchLockWait)
+	pause := 100 * time.Millisecond
+	for {
+		_, err := s.r.run(ctx, "fetch", "-q", "--prune", remote)
+		if err == nil {
+			return nil
+		}
+		if !refLocked(err) {
+			return fmt.Errorf("fetch from %s failed (offline?): %w", remote, err)
+		}
+		if time.Now().Add(pause).After(deadline) {
+			return fmt.Errorf("fetch from %s: another git process kept a ref locked; okvault retries on the next sync: %w", remote, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pause):
+		}
+		pause = min(2*pause, 800*time.Millisecond)
 	}
-	return nil
+}
+
+// refLocked reports whether git failed because another git process held a
+// lock on a ref (or on packed-refs) it had to update. Messages are stable:
+// git runs with LC_ALL=C.
+func refLocked(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "cannot lock ref") ||
+		strings.Contains(msg, ".lock': File exists") ||
+		strings.Contains(msg, "some local refs could not be updated")
 }
 
 func (s *Syncer) syncPush(ctx context.Context) error {
