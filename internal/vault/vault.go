@@ -93,6 +93,10 @@ type Vault struct {
 	busy    atomic.Bool     // a git operation is rewriting the work tree
 	snap    *Snapshot
 	smu     sync.RWMutex
+	// rmu serialises Reload. The watcher, writes, git and kb_review's rescan
+	// all reload; one at a time, a reload that starts later reads the disk
+	// later and stores its snapshot later, so the newest one always wins.
+	rmu sync.Mutex
 }
 
 // skipDir reports directories that are never indexed.
@@ -133,6 +137,8 @@ func (v *Vault) Snapshot() *Snapshot {
 
 // Reload rebuilds the snapshot from disk.
 func (v *Vault) Reload() (*Snapshot, error) {
+	v.rmu.Lock()
+	defer v.rmu.Unlock()
 	s := &Snapshot{
 		Concepts:  map[string]*okf.Concept{},
 		Links:     map[string][]string{},
