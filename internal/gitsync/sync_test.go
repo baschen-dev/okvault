@@ -294,7 +294,7 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if r.Header.Get("Authorization") != "Bearer tok" {
-		http.Error(w, `{"message":"Bad credentials"}`, 401)
+		http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 		return
 	}
 	switch {
