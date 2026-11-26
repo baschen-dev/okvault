@@ -133,7 +133,7 @@
 .okvault-chart svg { max-height: 75vh; }
 .okvault-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
 
-.okvault-edge { fill: none; stroke: var(--text-faint); stroke-opacity: 0.35; stroke-width: 1.2; transition: stroke-opacity 120ms; }
+.okvault-edge { fill: none; stroke: var(--text-faint); stroke-opacity: var(--okv-edge-opacity, 0.35); stroke-width: 1.2; transition: stroke-opacity 120ms; }
 .okvault-edge.is-intra { stroke-dasharray: none; }
 .is-highlighting .okvault-edge { stroke-opacity: 0.08; }
 .is-highlighting .okvault-edge.is-on { stroke: var(--interactive-accent); stroke-opacity: 0.9; stroke-width: 2; }
@@ -153,10 +153,12 @@
 .is-highlighting .okvault-node.is-on { opacity: 1; }
 .okvault-node:focus-visible .okvault-dot { stroke: var(--interactive-accent); }
 
-.okvault-label { font-size: 15px; fill: var(--text-muted); pointer-events: none; }
+.okvault-label { fill: var(--text-muted); pointer-events: none; }
+.okvault-label.is-extra { display: none; }
+.is-node-hover .okvault-label.is-extra.is-on { display: inline; }
 .is-highlighting .okvault-label { opacity: 0.3; }
 .is-highlighting .okvault-label.is-on { opacity: 1; fill: var(--text-normal); font-weight: 600; }
-.okvault-section-label, .okvault-arc-label { font-size: 16px; font-weight: 600; fill: var(--text-muted); pointer-events: none; }
+.okvault-section-label { font-weight: 600; fill: var(--text-muted); pointer-events: none; paint-order: stroke; stroke: var(--okv-surface); stroke-width: 4px; }
 .okvault-empty-text { fill: var(--text-muted); font-size: 14px; }
 
 .okvault-tip {

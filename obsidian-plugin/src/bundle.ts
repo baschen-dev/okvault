@@ -254,6 +254,96 @@ function edgePath(
   return `M${f(s.x)},${f(s.y)} C${f(a1.x)},${f(a1.y)} ${f(a2.x)},${f(a2.y)} ${f(t.x)},${f(t.y)}`;
 }
 
+/** How the map is drawn for a given on-screen size: label font and length, and the viewBox that fits them. */
+export interface LabelGeometry {
+  font: number; // label font size, in viewBox units
+  maxChars: number; // 0 = titles on hover only
+  half: number; // the viewBox runs from -half to +half both ways
+}
+
+const CHAR_W = 0.56; // average glyph width, in ems
+const LABEL_GAP = 14; // between the section arcs and the labels
+const ARC_OUT = 26; // outer edge of the section arcs, past the ring
+
+/**
+ * Sizes the labels so they read at `px` screen pixels on a chart `screen` pixels wide,
+ * while the ring keeps at least half of the chart: a narrow pane gets shorter titles,
+ * and below 14 characters titles move to hover only.
+ */
+export function labelGeometry(radius: number, screen: number, px = 11, cap = 32): LabelGeometry {
+  const inner = radius + ARC_OUT + LABEL_GAP;
+  // Labels of m characters take m·CHAR_W·font on each side; the ring keeps half the width.
+  const maxChars = Math.min(cap, Math.floor(screen / (4 * CHAR_W * px)));
+  if (maxChars < 14) return { font: (px * (radius + ARC_OUT + 10)) / (screen / 2), maxChars: 0, half: radius + ARC_OUT + 10 };
+  const half = inner / (1 - (2 * CHAR_W * px * maxChars) / screen);
+  return { font: (px * 2 * half) / screen, maxChars, half };
+}
+
+/** The radius labels start at. */
+export function labelRadius(radius: number): number {
+  return radius + ARC_OUT + LABEL_GAP;
+}
+
+/** A title cut to n characters at a word boundary when one is close, with an ellipsis. */
+export function shortTitle(s: string, n: number): string {
+  s = s.trim();
+  if (s.length <= n) return s;
+  const cut = s.slice(0, n - 1);
+  const sp = cut.lastIndexOf(" ");
+  const head = sp >= n * 0.6 ? cut.slice(0, sp) : cut;
+  return head.replace(/[\s,.;:–—-]+$/, "") + "…";
+}
+
+/** Review reasons, most urgent first (as the map's rings rank them). */
+const URGENCY = ["broken-links", "stale", "unverified", "draft", "no-owner"];
+
+/**
+ * Which notes get a title on the ring: every note when they all fit one line-height
+ * apart; otherwise the ones needing review (most urgent first), then the most linked,
+ * each kept only if no chosen title is closer than a line-height.
+ */
+export function pickLabels(nodes: Node[], radius: number, font: number): Set<string> {
+  const minGap = (font * 1.15) / labelRadius(radius); // radians between two labels
+  const sorted = [...nodes].sort((a, b) => a.angle - b.angle);
+  const fitsAll = sorted.every((n, i) => {
+    const next = sorted[(i + 1) % sorted.length];
+    const d = i + 1 < sorted.length ? next.angle - n.angle : next.angle + 2 * Math.PI - n.angle;
+    return sorted.length < 2 || d >= minGap - 1e-9;
+  });
+  if (fitsAll) return new Set(nodes.map((n) => n.path));
+  const rank = (n: Node) => {
+    const i = URGENCY.findIndex((r) => n.reasons.has(r));
+    return i < 0 ? URGENCY.length : i;
+  };
+  const order = [...nodes].sort((a, b) => rank(a) - rank(b) || b.degree - a.degree || a.title.localeCompare(b.title));
+  const taken: number[] = []; // sorted angles
+  const out = new Set<string>();
+  const near = (a: number) => {
+    // binary search for the insertion point, then check both neighbours (and wrap-around)
+    let lo = 0;
+    let hi = taken.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (taken[mid] < a) lo = mid + 1;
+      else hi = mid;
+    }
+    const gap = (x: number) => {
+      const d = Math.abs(x - a) % (2 * Math.PI);
+      return Math.min(d, 2 * Math.PI - d);
+    };
+    const cands = [taken[lo], taken[lo - 1], taken[0], taken[taken.length - 1]];
+    return cands.some((x) => x !== undefined && gap(x) < minGap);
+  };
+  for (const n of order) {
+    if (near(n.angle)) continue;
+    let lo = 0;
+    while (lo < taken.length && taken[lo] < n.angle) lo++;
+    taken.splice(lo, 0, n.angle);
+    out.add(n.path);
+  }
+  return out;
+}
+
 export function polar(angle: number, r: number): { x: number; y: number } {
   return { x: r * Math.sin(angle), y: -r * Math.cos(angle) };
 }
