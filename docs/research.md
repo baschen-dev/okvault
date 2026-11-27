@@ -74,7 +74,6 @@ If you want repo-scanning and auto-generated knowledge, superops-team/okf covers
   - The index lives in memory and is rebuilt at start-up and on file change. A few thousand notes take milliseconds.
   - Embeddings are a possible later addition behind the same `search` package. They should be optional, so the binary stays dependency-free.
   - **Link priors (added 2026-11-26).** The note-link graph adjusts the BM25 order a little: notes other notes link to, and notes one link from a ticket in the query, rank higher. The adjustments multiply the score and are capped, so they only decide between notes that match about equally well ([Search ranking](../vault/reference/search-ranking.md)).
-  - **Graph stores considered.** [rete](https://caviri.github.io/rete/) puts an RDF graph in one static file that clients query with SPARQL over HTTP range requests. It is built for graphs of billions of triples on static hosting. A vault fits in memory, so rete would add a Rust dependency and a derived file, and it does not rank results. Not adopted.
 - **FAQ fast path.**
   1. The question is compared with every FAQ title and alias.
   2. A normalised exact match returns the stored answer.
